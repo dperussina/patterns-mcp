@@ -27,7 +27,8 @@ export interface OrderRetryPolicy {
   /** The delay before the second attempt, in milliseconds. */
   readonly baseDelayMs: number;
   /**
-   * The ceiling applied before jitter, so a long schedule cannot grow without bound.
+   * The ceiling applied before jitter, so a long schedule cannot grow without
+   * bound.
    */
   readonly maxDelayMs: number;
 }
@@ -197,8 +198,9 @@ function delay(milliseconds: number, signal?: AbortSignal): Promise<void> {
 /**
  * Using the retry loop.
  *
- * The two things worth copying from here: a `shouldRetry` that names what is actually transient,
- * and a caller that distinguishes exhaustion from an error it was never going to survive.
+ * The two things worth copying from here: a `shouldRetry` that names what is
+ * actually transient, and a caller that distinguishes exhaustion from an error
+ * it was never going to survive.
  */
 
 import { retryOrder, OrderRetryExhaustedError } from "./order-retry.js";
@@ -213,8 +215,9 @@ function hasStatus(error: unknown): error is StatusError {
 }
 
 /**
- * Retryable means "might succeed unchanged next time": a timeout, a rate limit, a server fault. A
- * 400 is not retryable, and retrying it three times turns one wasted call into four.
+ * Retryable means "might succeed unchanged next time": a timeout, a rate limit,
+ * a server fault. A 400 is not retryable, and retrying it three times turns one
+ * wasted call into four.
  */
 function isTransient(error: unknown): boolean {
   if (!hasStatus(error)) {
@@ -241,7 +244,8 @@ export async function loadProfile(
       signal,
     });
   } catch (error) {
-    // Exhaustion is worth reporting differently: the service was failing, not the request.
+    // Exhaustion is worth reporting differently: the service was failing, not
+    // the request.
     if (error instanceof OrderRetryExhaustedError) {
       report(`gave up on ${id} after ${String(error.attempts)} attempts`);
       return undefined;
@@ -259,8 +263,9 @@ function report(message: string): void {
 
 ```ts
 /**
- * The schedule is asserted to the millisecond, which is only possible because waiting and
- * randomness are injected. Nothing here sleeps, so the suite runs in microseconds.
+ * The schedule is asserted to the millisecond, which is only possible because
+ * waiting and randomness are injected. Nothing here sleeps, so the suite runs
+ * in microseconds.
  */
 
 import { describe, expect, it } from "vitest";
@@ -349,7 +354,8 @@ describe("the loop", () => {
     expect((thrown as OrderRetryExhaustedError).lastError).toBeInstanceOf(
       Error,
     );
-    // Two waits for three attempts: the loop does not sleep after the final failure.
+    // Two waits for three attempts: the loop does not sleep after the final
+    // failure.
     expect(clock.waits).toHaveLength(2);
   });
   it("rethrows an error the predicate declines, unchanged", async () => {
@@ -367,7 +373,8 @@ describe("the loop", () => {
     } catch (error) {
       thrown = error;
     }
-    // The caller's own error, not ours: a `catch` testing for a specific type still works.
+    // The caller's own error, not ours: a `catch` testing for a specific type
+    // still works.
     expect(thrown).toBe(refused);
     expect(clock.waits).toHaveLength(0);
   });
@@ -384,7 +391,8 @@ describe("the loop", () => {
       },
     });
     expect(seen).toEqual([1, 2]);
-    // The hook is told the same wait the loop then takes, so a log line cannot disagree with reality.
+    // The hook is told the same wait the loop then takes, so a log line cannot
+    // disagree with reality.
     expect(reported).toEqual(clock.waits);
   });
   it("refuses a policy that could never run", async () => {
@@ -444,7 +452,8 @@ describe("cancellation", () => {
     } catch (error) {
       thrown = error;
     }
-    // One attempt, one wait, then the abort is observed at the top of the second pass.
+    // One attempt, one wait, then the abort is observed at the top of the second
+    // pass.
     expect(attempts).toBe(1);
     expect(thrown).toBeInstanceOf(Error);
   });

@@ -72,6 +72,129 @@ export function joinLines(...parts: readonly Renderable[]): string {
 }
 
 /**
+ * Joins parts with exactly one blank line between them, dropping blank parts.
+ *
+ * `joinLines` cannot serve here: it drops the blank separators along with
+ * everything else blank, so a template assembled from sections came out as an
+ * unreadable wall of declarations. Prettier does not help — it preserves blank
+ * lines rather than inserting them, so whatever a template emits is what ships.
+ *
+ * Dropping blank parts is what makes conditional sections safe. A section that
+ * renders to nothing leaves no trace, so turning an option off cannot leave a
+ * double blank line behind, which is the usual way conditional templates lose
+ * byte-identical output.
+ */
+export function sections(...parts: readonly Renderable[]): string {
+  return parts
+    .map((part) => normalizeNewlines(stringify(part)).trim())
+    .filter((part) => part !== "")
+    .join("\n\n");
+}
+
+/**
+ * The prose width for a generated doc comment: 80, less the three columns
+ * `" * "` occupies.
+ *
+ * Fixed rather than derived from the caller's `printWidth`, because Prettier
+ * reflows code and never comments — so a template that does not wrap its own
+ * prose emits a 200-column line that no formatter will ever fix. Narrower than
+ * a wide project would choose, which is the harmless direction to be wrong in.
+ */
+const PROSE_WIDTH = 77;
+
+/**
+ * A floor, so that a deeply nested comment degrades to narrow rather than to one
+ * word per line.
+ */
+const MIN_PROSE_WIDTH = 40;
+
+/**
+ * Greedy word wrap. Words longer than `width` are left alone rather than
+ * broken, since the only things that long are identifiers and URLs, and
+ * hyphenating either makes it wrong.
+ */
+export function wrapProse(text: string, width = PROSE_WIDTH): string[] {
+  const words = normalizeNewlines(text).split(/\s+/).filter((word) => word !== "");
+  if (words.length === 0) {
+    return [];
+  }
+
+  const lines: string[] = [];
+  let line = "";
+
+  for (const word of words) {
+    if (line === "") {
+      line = word;
+      continue;
+    }
+    if (line.length + 1 + word.length <= width) {
+      line += ` ${word}`;
+      continue;
+    }
+    lines.push(line);
+    line = word;
+  }
+
+  lines.push(line);
+  return lines;
+}
+
+/**
+ * A JSDoc block from paragraphs of prose, each wrapped to `PROSE_WIDTH`.
+ *
+ * Templates assemble doc comments from conditional pieces, and doing that by
+ * hand means every author re-derives the ` * ` prefixes and the blank-line
+ * conventions — and gets the wrapping wrong, because a template literal shows
+ * no column ruler. Blank paragraphs are dropped, so a paragraph that only
+ * applies under one option can be interpolated unconditionally.
+ */
+export function doc(...paragraphs: readonly Renderable[]): string {
+  return docAt(0, ...paragraphs);
+}
+
+/**
+ * `doc`, for a comment that will sit `columns` deep — on an interface member,
+ * say, or a class field.
+ *
+ * The indentation has to be applied here rather than by wrapping `doc` in
+ * `indent`, because the prefix consumes width that the wrapping must know
+ * about. Indenting afterwards pushed every line two columns past the limit,
+ * which is exactly the kind of miss no one notices in a template literal and
+ * everyone notices in the generated file.
+ */
+export function docAt(columns: number, ...paragraphs: readonly Renderable[]): string {
+  const blocks = paragraphs
+    .map((paragraph) => stringify(paragraph).trim())
+    .filter((paragraph) => paragraph !== "");
+
+  if (blocks.length === 0) {
+    return "";
+  }
+
+  const pad = " ".repeat(columns);
+  const width = Math.max(MIN_PROSE_WIDTH, PROSE_WIDTH - columns);
+  const body: string[] = [];
+
+  for (const [index, block] of blocks.entries()) {
+    if (index > 0) {
+      body.push(`${pad} *`);
+    }
+    // A paragraph already broken into lines is respected: an author who wrote a
+    // list or an `@throws` tag meant those line breaks.
+    for (const line of block.split("\n")) {
+      const wrapped = wrapProse(line, width);
+      body.push(
+        ...(wrapped.length === 0
+          ? [`${pad} *`]
+          : wrapped.map((text) => `${pad} * ${text}`)),
+      );
+    }
+  }
+
+  return [`${pad}/**`, ...body, `${pad} */`].join("\n");
+}
+
+/**
  * Non-mutating sort by a derived key, with a pinned comparator.
  *
  * Every ordering that reaches a template must come from a declared sort rather

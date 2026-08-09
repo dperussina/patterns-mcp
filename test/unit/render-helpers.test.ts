@@ -2,10 +2,13 @@ import { describe, expect, it } from "vitest";
 
 import {
   dedent,
+  doc,
   indent,
   joinLines,
+  sections,
   sortBy,
   when,
+  wrapProse,
 } from "../../src/engine/render/helpers.js";
 
 describe("dedent", () => {
@@ -111,6 +114,81 @@ describe("joinLines", () => {
 
   it("splits multi-line parts so a blank line inside one is still dropped", () => {
     expect(joinLines("a\n\nb")).toBe("a\nb");
+  });
+});
+
+describe("sections", () => {
+  it("puts one blank line between parts, which is what makes output readable", () => {
+    // Prettier preserves blank lines rather than inserting them, so a template that emits none ships
+    // a wall of declarations. `joinLines` cannot do this job: it drops the separators too.
+    expect(sections("a;", "b;")).toBe("a;\n\nb;");
+  });
+
+  it("drops a section that rendered to nothing, leaving no double blank behind", () => {
+    expect(sections("a;", "", "b;")).toBe("a;\n\nb;");
+    expect(sections("a;", "   \n  ", "b;")).toBe("a;\n\nb;");
+  });
+
+  it("does not accumulate blank lines when parts already end with them", () => {
+    expect(sections("a;\n\n", "\nb;")).toBe("a;\n\nb;");
+  });
+
+  it("returns nothing when every section is empty", () => {
+    expect(sections("", undefined, null)).toBe("");
+  });
+});
+
+describe("wrapProse", () => {
+  it("wraps at the given width without breaking words", () => {
+    expect(wrapProse("aaa bbb ccc", 7)).toEqual(["aaa bbb", "ccc"]);
+  });
+
+  it("leaves a word longer than the width alone, since breaking it would be wrong", () => {
+    // The only things this long are identifiers and URLs, and hyphenating either changes it.
+    expect(wrapProse("short averyveryverylongidentifier", 8)).toEqual([
+      "short",
+      "averyveryverylongidentifier",
+    ]);
+  });
+
+  it("collapses runs of whitespace, so a template's own line breaks do not leak", () => {
+    expect(wrapProse("a  \n  b", 80)).toEqual(["a b"]);
+  });
+
+  it("returns nothing for blank input", () => {
+    expect(wrapProse("   ")).toEqual([]);
+  });
+});
+
+describe("doc", () => {
+  it("wraps prose, because Prettier reflows code and never comments", () => {
+    const long = "word ".repeat(30).trim();
+    const block = doc(long);
+
+    for (const line of block.split("\n")) {
+      expect(line.length).toBeLessThan(81);
+    }
+    expect(block.startsWith("/**\n")).toBe(true);
+    expect(block.endsWith("\n */")).toBe(true);
+  });
+
+  it("separates paragraphs with a bare marker", () => {
+    expect(doc("first", "second")).toBe("/**\n * first\n *\n * second\n */");
+  });
+
+  it("drops a paragraph that does not apply, so it can be interpolated unconditionally", () => {
+    expect(doc("first", "", "second")).toBe("/**\n * first\n *\n * second\n */");
+  });
+
+  it("respects line breaks an author put inside a paragraph", () => {
+    // A list or an `@throws` tag means those breaks; only over-long lines get rewrapped.
+    expect(doc("@throws when it fails\n@returns otherwise")).toBe(
+      "/**\n * @throws when it fails\n * @returns otherwise\n */",
+    );
+  });
+
+  it("returns nothing when there is nothing to say", () => {
+    expect(doc("", undefined)).toBe("");
   });
 });
 

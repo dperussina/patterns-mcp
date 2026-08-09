@@ -21,6 +21,7 @@ import { deriveNames, loadNameTable } from "../options/names.js";
 import type { NameTable, NameTransform } from "../options/names.js";
 import { resolveOptions } from "../options/resolve.js";
 import type { ResolvedRequest } from "../options/resolve.js";
+import { circuitBreakerPattern } from "../patterns/circuit-breaker/index.js";
 import { resultPattern } from "../patterns/result/index.js";
 import { retryPattern } from "../patterns/retry/index.js";
 import type { PatternModule, RenderedFile } from "../patterns/types.js";
@@ -57,7 +58,7 @@ export interface Bundle {
 export type GenerateResult = Bundle;
 
 /** Registered pattern modules, keyed by the catalog name each implements. */
-const MODULES: readonly PatternModule[] = [resultPattern, retryPattern];
+const MODULES: readonly PatternModule[] = [circuitBreakerPattern, resultPattern, retryPattern];
 
 export async function generate(request: GenerateRequest): Promise<GenerateResult> {
   const [catalog, names] = await Promise.all([catalogOnce(), nameTableOnce()]);

@@ -21,6 +21,30 @@ import { EngineError } from "../../src/engine/errors.js";
 /** The name every snapshot generates around, so a diff shows an option's effect and nothing else. */
 export const GOLDEN_ENTITY = "Order";
 
+/**
+ * Prettier's default `printWidth`, which is what generated code is formatted to unless a caller says
+ * otherwise. Comments have to respect it too, and Prettier will not reflow them — see T114, which owns
+ * the remaining overflow and the reason a template cannot fix it by itself.
+ */
+const PRINT_WIDTH = 80;
+
+/**
+ * The comment lines in `text` that exceed the print width.
+ *
+ * Restricted to comments on purpose. A code line can legitimately overflow — a template literal or a
+ * long string has nowhere to break, and Prettier has already made that judgement — whereas a comment
+ * is prose that something upstream controls completely.
+ *
+ * Not asserted anywhere yet: three patterns still overflow, and the fix belongs in the format step
+ * rather than in each template (T114). Exported so that the assertion is one line away once it holds.
+ */
+export function overWideComments(text: string): readonly string[] {
+  return text
+    .split("\n")
+    .filter((line) => line.length > PRINT_WIDTH)
+    .filter((line) => /^\s*(?:\/\/|\/\*|\*)/.test(line));
+}
+
 export type OptionValue = string | number | boolean;
 export type Combination = Readonly<Record<string, OptionValue>>;
 

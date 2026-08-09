@@ -27,7 +27,8 @@ export interface OrderRetryPolicy {
   /** The delay before the second attempt, in milliseconds. */
   readonly baseDelayMs: number;
   /**
-   * The ceiling applied before jitter, so a long schedule cannot grow without bound.
+   * The ceiling applied before jitter, so a long schedule cannot grow without
+   * bound.
    */
   readonly maxDelayMs: number;
   /** What each successive delay is multiplied by. */
@@ -169,8 +170,9 @@ function delay(milliseconds: number): Promise<void> {
 /**
  * Using the retry loop.
  *
- * The two things worth copying from here: a `shouldRetry` that names what is actually transient,
- * and a caller that distinguishes exhaustion from an error it was never going to survive.
+ * The two things worth copying from here: a `shouldRetry` that names what is
+ * actually transient, and a caller that distinguishes exhaustion from an error
+ * it was never going to survive.
  */
 
 import { retryOrder, OrderRetryExhaustedError } from "./order-retry.js";
@@ -185,8 +187,9 @@ function hasStatus(error: unknown): error is StatusError {
 }
 
 /**
- * Retryable means "might succeed unchanged next time": a timeout, a rate limit, a server fault. A
- * 400 is not retryable, and retrying it three times turns one wasted call into four.
+ * Retryable means "might succeed unchanged next time": a timeout, a rate limit,
+ * a server fault. A 400 is not retryable, and retrying it three times turns one
+ * wasted call into four.
  */
 function isTransient(error: unknown): boolean {
   if (!hasStatus(error)) {
@@ -211,7 +214,8 @@ export async function loadProfile(
       },
     });
   } catch (error) {
-    // Exhaustion is worth reporting differently: the service was failing, not the request.
+    // Exhaustion is worth reporting differently: the service was failing, not
+    // the request.
     if (error instanceof OrderRetryExhaustedError) {
       report(`gave up on ${id} after ${String(error.attempts)} attempts`);
       return undefined;

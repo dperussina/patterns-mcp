@@ -25,9 +25,9 @@
  * }
  * ```
  *
- * Testing `outcome.ok` directly reads the same way and works in a project with
- * `strictNullChecks` on. The predicates additionally narrow without it, so they are what the
- * combinators below use and what this module recommends.
+ * Testing `outcome.ok` directly reads the same way and works in a project
+ * with `strictNullChecks` on. The predicates additionally narrow without it,
+ * so they are what the combinators below use and what this module recommends.
  */
 export type OrderResult<T, E = Error> = Ok<T> | Err<E>;
 export interface Ok<T> {
@@ -41,10 +41,11 @@ export interface Err<E> {
 /**
  * Wraps a successful value.
  *
- * The return type is the whole union with `never` on the failure side, not `Ok<T>` alone.
- * That is what lets `andThen(result, (n) => ok(n + 1))` infer: a bare `Ok<T>` carries no
- * information about the error arm, so the error type would infer as `unknown` and every call
- * site would need a type argument written by hand.
+ * The return type is the whole union with `never` on the failure side, not
+ * `Ok<T>` alone. That is what lets `andThen(result, (n) => ok(n + 1))`
+ * infer: a bare `Ok<T>` carries no information about the error arm, so the
+ * error type would infer as `unknown` and every call site would need a type
+ * argument written by hand.
  */
 export function ok<T>(value: T): OrderResult<T, never> {
   return { ok: true, value };
@@ -56,10 +57,11 @@ export function err<E>(error: E): OrderResult<never, E> {
 /**
  * Narrowing helpers, used by every combinator below as well as by callers.
  *
- * They are not a convenience here, they are load-bearing. Reading `result.ok` narrows the
- * union only when `strictNullChecks` is on; under a `strict: false` project the discriminant
- * stops narrowing and `result.error` becomes an error on the success arm. A type predicate
- * narrows the same way under every configuration, so the module compiles for every caller.
+ * They are not a convenience here, they are load-bearing. Reading `result.ok`
+ * narrows the union only when `strictNullChecks` is on; under a `strict:
+ * false` project the discriminant stops narrowing and `result.error` becomes
+ * an error on the success arm. A type predicate narrows the same way under
+ * every configuration, so the module compiles for every caller.
  */
 export function isOk<T, E>(result: OrderResult<T, E>): result is Ok<T> {
   return result.ok;
@@ -109,9 +111,10 @@ export function unwrapOrElse<T, E>(
 /**
  * Extracts the value or throws.
  *
- * Provided for the boundary where a value-typed error has to become an exception again — a test
- * assertion, or a framework that reports thrown errors. Prefer the combinators inside your own
- * code; this exists so the escape hatch is explicit rather than improvised.
+ * Provided for the boundary where a value-typed error has to become an
+ * exception again — a test assertion, or a framework that reports thrown
+ * errors. Prefer the combinators inside your own code; this exists so the
+ * escape hatch is explicit rather than improvised.
  */
 export function unwrap<T, E>(result: OrderResult<T, E>): T {
   if (isOk(result)) {
@@ -161,8 +164,8 @@ export async function andThenAsync<T, U, E>(
   return isOk(result) ? await next(result.value) : err(result.error);
 }
 /**
- * Collects many results into one. Returns the first failure in order, so the outcome does not
- * depend on which operation happened to finish first.
+ * Collects many results into one. Returns the first failure in order, so the
+ * outcome does not depend on which operation happened to finish first.
  */
 export function all<T, E>(
   results: Iterable<OrderResult<T, E>>,
@@ -199,8 +202,8 @@ export function partition<T, E>(
 /**
  * How to adopt OrderResult.
  *
- * A parser is the shortest honest example: it has a real failure case, and the failure carries
- * information the caller needs rather than being a bare null.
+ * A parser is the shortest honest example: it has a real failure case, and the
+ * failure carries information the caller needs rather than being a bare null.
  */
 
 import { andThen, err, map, match, ok, unwrapOr } from "./order-result.js";

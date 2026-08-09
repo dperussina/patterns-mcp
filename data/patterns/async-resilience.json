@@ -42,8 +42,47 @@
         }
       ],
       "legality": [],
-      "relatedPatterns": [],
+      "relatedPatterns": ["circuit-breaker"],
       "provenance": "Original implementation. Exponential backoff with full and equal jitter follows the schedule described in the AWS Architecture Blog's \"Exponential Backoff And Jitter\" (2015), which is a published analysis rather than a codebase; the code here is written from that description.",
+      "license": "original",
+      "tier": 1
+    },
+    {
+      "name": "circuit-breaker",
+      "title": "Circuit Breaker",
+      "category": "async-resilience",
+      "kind": "generative",
+      "intent": "Stop calling a dependency that is failing, and probe it occasionally to find out when it has recovered.",
+      "supportsSplit": false,
+      "variants": [],
+      "options": [
+        {
+          "name": "failureCounting",
+          "type": "enum",
+          "values": ["consecutive", "rolling-window"],
+          "default": "consecutive",
+          "description": "What counts as enough failure to open. `consecutive` opens after a run of failures with no success between them, and forgets the run on any success. `rolling-window` opens when enough failures land inside a time window, so an intermittent fault that never quite manages a clean run still trips it.",
+          "affects": ["core"]
+        },
+        {
+          "name": "halfOpen",
+          "type": "enum",
+          "values": ["single-probe", "sampled"],
+          "default": "single-probe",
+          "description": "How recovery is tested once the cooldown expires. `single-probe` admits exactly one call and decides on it alone. `sampled` admits several and requires a quota of successes, which is slower to close but far less likely to close onto a dependency that is only intermittently back.",
+          "affects": ["core"]
+        },
+        {
+          "name": "includeTests",
+          "type": "boolean",
+          "default": true,
+          "description": "Emit an executable test suite alongside the implementation.",
+          "affects": ["files"]
+        }
+      ],
+      "legality": [],
+      "relatedPatterns": ["retry"],
+      "provenance": "Original implementation. The three-state breaker with a half-open probe is the formulation in Michael Nygard's \"Release It!\" (2007), described there in prose and diagrams rather than as code; this is written from that description.",
       "license": "original",
       "tier": 1
     }
