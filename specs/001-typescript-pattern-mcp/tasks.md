@@ -39,7 +39,7 @@ Single published package with three entry points, per plan.md: `src/engine/` (pu
 
 - [X] T001 Add runtime dependencies `@modelcontextprotocol/server@2.0.0` and `zod@4.4.3` to `package.json` — note the SDK is *not* `@modelcontextprotocol/sdk`, which is the older 1.x monolith still tagged `latest`
 - [X] T002 Pin `typescript@7.0.2` and `prettier@3.9.6` with exact versions (no caret) in `package.json`, and set `engines.node` to `>=20` per the Toolchain Pinning section of the constitution
-- [ ] T003 [P] Create ESLint flat config `eslint.config.mjs` including the import-boundary rule that forbids any module under `src/engine/` or `src/index.ts` from importing MCP packages (Principle X)
+- [ ] T003 [P] Create oxlint config `.oxlintrc.json` including the import-boundary rule that forbids any module under `src/engine/` or `src/index.ts` from importing MCP packages (Principle X), and add a `lint` script. Not ESLint — `typescript-eslint` caps at `typescript <6.1.0` against our pinned 7.0.2, per research.md §12
 - [ ] T004 [P] Create the source tree skeleton per plan.md: `src/engine/{catalog,patterns,options,render,format,verify,provenance}/`, `src/mcp/{tools,resources,transports}/`, `src/cli/`, `data/patterns/`
 - [ ] T005 [P] Configure Vitest projects for `unit`, `contract`, `golden`, `determinism`, and `parity` suites in `vitest.config.ts`, with matching directories under `test/`
 - [ ] T006 Add a composite `check` script to `package.json` chaining lint, typecheck, all five test projects, catalog validation, and conformance — this is the single gate referenced by quickstart.md
@@ -72,7 +72,7 @@ Single published package with three entry points, per plan.md: `src/engine/` (pu
 - [ ] T021 Implement the stable TypeScript 6.x `createProgram` fallback behind a flag in `src/engine/verify/typecheck-fallback.ts`, so the verification gate survives an upstream break in the unstable API
 - [ ] T022 Implement the generated-test executor with a hard timeout and sandboxing in `src/engine/verify/run-tests.ts`; it must never execute caller-supplied content (FR-034)
 - [ ] T023 [P] Write unit tests for every foundational module in `test/unit/` — options resolution, legality ordering, identifier rejection, hash stability, VFS lib fallthrough
-- [ ] T024 [P] Add a determinism guard in `test/unit/determinism-guard.test.ts` plus a lint rule that fails on `Date`, `Math.random`, `process.env`, or filesystem reads anywhere under `src/engine/` (Principle I)
+- [ ] T024 [P] Add a determinism guard in `test/unit/determinism-guard.test.ts` plus oxlint rules on the `src/engine/**` override that fail on `Date.now`, `Math.random`, and `process` (`no-restricted-properties` and `no-restricted-globals`, both verified working). `no-restricted-syntax` is unsupported by oxlint, so structural checks — unordered iteration reaching a template, filesystem reads in the generation path — belong in the test half of this task rather than in lint (Principle I, research.md §12)
 
 **Checkpoint**: Engine machinery exists and is unit-tested. User story work can begin.
 

@@ -34,6 +34,9 @@ checks a four-file bundle in single-digit milliseconds.
 - `tsdown` — build. Chosen during scaffolding because `tsup`'s declaration generator cannot run
   against TypeScript 7.
 
+- `oxlint` 1.77.0, pinned exactly — linting. ESLint is not usable here: `typescript-eslint` caps at
+  `typescript <6.1.0` and we are pinned to 7.0.2. See research.md §12.
+
 Dev-only: `@modelcontextprotocol/conformance` (0.1.16) and `@modelcontextprotocol/inspector` (2.1.0).
 
 **Storage**: None. The service is a pure function over its inputs and holds no cross-request state.

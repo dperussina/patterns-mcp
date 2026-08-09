@@ -266,6 +266,46 @@ separate steps in the pipeline. `contentHash` covers emitted files only, never t
 
 ---
 
+## 12. Linter
+
+**Decision**: `oxlint`, pinned exactly. Not ESLint.
+
+**Rationale**: Forced, not preferred. `typescript-eslint` requires `typescript >=4.8.4 <6.1.0` on both
+`latest` and `canary`, and we are pinned to 7.0.2 — so there is no ESLint path to linting TypeScript in
+this project. The cause is the same rewrite that shapes our verification design: TypeScript 7 is the
+native compiler port, `typescript-eslint` needs the classic compiler API for type-aware rules, and the
+API we exploit for fast verification is the API that broke it.
+
+`oxlint` is Rust-based with no TypeScript dependency, so the conflict cannot recur, and it declares an
+optional peer on `oxlint-tsgolint@7.0.2001` — a version tracking the TypeScript 7 toolchain — which is
+where type-aware linting for this compiler appears to be heading.
+
+Verified against deliberate violations before adopting:
+
+| Rule | Result |
+|---|---|
+| `no-restricted-imports` scoped by `overrides.files` | Flags `src/engine/**`, leaves `src/mcp/**` alone — the Principle X boundary, correctly scoped |
+| `no-restricted-globals` (`process`) | Flagged |
+| `no-restricted-properties` (`Date.now`, `Math.random`) | Flagged, with custom messages |
+| `no-restricted-syntax` | **Unsupported** — configuration fails to build |
+
+**Alternatives considered**: Installing a second, older TypeScript purely to satisfy
+`typescript-eslint` — rejected; two compilers in one tree is precisely the complexity the Toolchain
+Pinning section exists to prevent, and it would leave lint checking a different language version than
+the one we ship. Biome as linter alongside Prettier as formatter — workable, but Biome's JS API churn
+was already grounds for rejecting it as our formatter, and adopting it for lint only would mean two
+Rust toolchains where one suffices. Dropping the lint gate and enforcing the boundary purely by test —
+rejected because Principle X's boundary is a structural guarantee that should fail at the earliest
+possible moment, and the constitution names lint as a CI gate.
+
+**Consequences**: `no-restricted-syntax` being unavailable means T024's determinism guard cannot express
+structural checks as lint rules. This costs nothing: the three supported rules cover the outright bans,
+and the check that never fit a lint rule anyway — unordered iteration reaching a template — belongs in
+the test-based half of that task. Lint plugin choice is not output-affecting, but oxlint is pinned
+exactly regardless, so a release that adds rules cannot redden the gate on an unrelated day.
+
+---
+
 ## Open items carried forward
 
 1. **Header/body validation coverage** — the specification makes it a MUST that a server processing the
