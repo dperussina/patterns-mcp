@@ -7,7 +7,7 @@
  * So most of this file runs both engines over the same inputs and compares.
  */
 
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it, vi } from "vitest";
 
 import { DEFAULT_CONVENTIONS } from "../../src/engine/options/conventions.js";
 import type { Conventions } from "../../src/engine/options/conventions.js";
@@ -15,6 +15,14 @@ import { createVerifier } from "../../src/engine/verify/index.js";
 import { FallbackTypechecker } from "../../src/engine/verify/typecheck-fallback.js";
 import { Typechecker } from "../../src/engine/verify/typecheck.js";
 import type { BundleFile } from "../../src/engine/verify/typecheck.js";
+
+/**
+ * The fallback builds a fresh program per check — that is the whole point of it, since it trades the
+ * warm instance's speed for not depending on an unstable API. A single check therefore costs a second
+ * or two, and the 5s default starts timing out once this file shares a machine with the golden sweep.
+ * A timeout that reflects what the code actually costs is worth more than a gate that fails on load.
+ */
+vi.setConfig({ testTimeout: 60_000 });
 
 const fast = new Typechecker();
 const stable = new FallbackTypechecker();

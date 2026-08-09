@@ -22,12 +22,14 @@ import type { NameTable, NameTransform } from "../options/names.js";
 import { resolveOptions } from "../options/resolve.js";
 import type { ResolvedRequest } from "../options/resolve.js";
 import { resultPattern } from "../patterns/result/index.js";
+import { retryPattern } from "../patterns/retry/index.js";
 import type { PatternModule, RenderedFile } from "../patterns/types.js";
 import { createVerifier, compilerOptionsFor } from "../verify/index.js";
 import type { Verifier } from "../verify/index.js";
 import { buildVerificationRecord } from "../verify/record.js";
 import type { VerificationRecord } from "../verify/record.js";
 import { runGeneratedTests } from "../verify/run-tests.js";
+import { platformTypesFor } from "../verify/platform-types.js";
 import { bareImports, shimTypesFor } from "../verify/test-shims.js";
 import { assembleBundle } from "./assemble.js";
 import type { EmitScope, File } from "./assemble.js";
@@ -55,7 +57,7 @@ export interface Bundle {
 export type GenerateResult = Bundle;
 
 /** Registered pattern modules, keyed by the catalog name each implements. */
-const MODULES: readonly PatternModule[] = [resultPattern];
+const MODULES: readonly PatternModule[] = [resultPattern, retryPattern];
 
 export async function generate(request: GenerateRequest): Promise<GenerateResult> {
   const [catalog, names] = await Promise.all([catalogOnce(), nameTableOnce()]);
@@ -130,10 +132,12 @@ async function verify(
   for (const file of files) {
     for (const specifier of bareImports(file.contents)) imported.add(specifier);
   }
-  const declarations = [...shimTypesFor([...imported])].map(([path, contents]) => ({
-    path,
-    contents,
-  }));
+  // Host facilities — timers, AbortSignal — are declared unconditionally rather than per import, since
+  // they are globals a bundle uses without importing anything.
+  const declarations = [
+    ...shimTypesFor([...imported]),
+    ...platformTypesFor(resolved.conventions),
+  ].map(([path, contents]) => ({ path, contents }));
 
   const outcome = await verifier.check(
     [

@@ -1,0 +1,51 @@
+{
+  "patterns": [
+    {
+      "name": "retry",
+      "title": "Retry with Backoff",
+      "category": "async-resilience",
+      "kind": "generative",
+      "intent": "Re-attempt a failing asynchronous operation on a bounded, jittered schedule so a transient fault does not become a request failure.",
+      "supportsSplit": false,
+      "variants": [],
+      "options": [
+        {
+          "name": "backoff",
+          "type": "enum",
+          "values": ["exponential", "linear", "constant"],
+          "default": "exponential",
+          "description": "How the delay grows between attempts. `exponential` multiplies by a factor each time, `linear` adds the base delay each time, `constant` waits the same amount every time.",
+          "affects": ["core"]
+        },
+        {
+          "name": "jitter",
+          "type": "enum",
+          "values": ["full", "equal", "none"],
+          "default": "full",
+          "description": "How much randomness to mix into each delay, so that many clients failing together do not retry in lockstep. `full` picks anywhere from zero to the computed delay, `equal` picks from the upper half of it, `none` uses it exactly and needs no random source.",
+          "affects": ["core"]
+        },
+        {
+          "name": "cancellation",
+          "type": "enum",
+          "values": ["abort-signal", "none"],
+          "default": "abort-signal",
+          "description": "Whether the retry loop accepts an AbortSignal, so a caller can abandon it mid-wait. `none` emits a loop with no cancellation plumbing at all.",
+          "affects": ["core"]
+        },
+        {
+          "name": "includeTests",
+          "type": "boolean",
+          "default": true,
+          "description": "Emit an executable test suite alongside the implementation.",
+          "affects": ["files"]
+        }
+      ],
+      "legality": [],
+      "relatedPatterns": [],
+      "provenance": "Original implementation. Exponential backoff with full and equal jitter follows the schedule described in the AWS Architecture Blog's \"Exponential Backoff And Jitter\" (2015), which is a published analysis rather than a codebase; the code here is written from that description.",
+      "license": "original",
+      "tier": 1
+    }
+  ]
+}
