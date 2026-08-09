@@ -83,6 +83,14 @@ function hostFor(
 ): ts.CompilerHost {
   const readThrough = (fileName: string): boolean => isLibFile(fileName);
   const real = ts.sys;
+  const libDirectory = dirname(ts.getDefaultLibFilePath(options));
+
+  // Directory questions are how module resolution walks for node_modules, so answering them from the
+  // real filesystem would let a bare specifier resolve against whatever is installed beside this
+  // server. Only the bundle's own root and the compiler's lib directory exist as far as the host is
+  // concerned. Without this the boundary would rest on ROOT happening not to exist on disk.
+  const visibleDirectory = (directoryName: string): boolean =>
+    directoryName === ROOT || directoryName === libDirectory;
 
   return {
     getSourceFile(fileName, languageVersionOrOptions) {
@@ -102,11 +110,11 @@ function hostFor(
     fileExists: (fileName) => sources.has(fileName) || (readThrough(fileName) && real.fileExists(fileName)),
     readFile: (fileName) =>
       sources.get(fileName) ?? (readThrough(fileName) ? real.readFile(fileName) : undefined),
-    directoryExists: (directoryName) =>
-      directoryName === ROOT || directoryName === "/" || real.directoryExists(directoryName),
-    getDirectories: (directoryName) => (directoryName === ROOT ? [] : real.getDirectories(directoryName)),
+    directoryExists: (directoryName) => visibleDirectory(directoryName),
+    getDirectories: (directoryName) =>
+      directoryName === libDirectory ? real.getDirectories(directoryName) : [],
     realpath: (fileName) => fileName,
-    getDefaultLibLocation: () => dirname(ts.getDefaultLibFilePath(options)),
+    getDefaultLibLocation: () => libDirectory,
   };
 }
 

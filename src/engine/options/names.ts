@@ -237,8 +237,20 @@ function capitalise(word: string): string {
   if (word.length > 1 && word === word.toUpperCase()) {
     return word;
   }
+  // An acronym carrying a pluralising suffix is no longer all-caps, so the
+  // clause above misses it. Lowering its tail would answer ID with Ids.
+  if (ACRONYM_PLURAL.test(word)) {
+    return word;
+  }
   return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
 }
+
+/**
+ * An acronym followed by the suffix `pluraliseWord` appends: `IDs`, `BOXes`.
+ * Two leading capitals are required so a normal capitalised word ending in -s,
+ * like `Status`, still gets its tail normalised.
+ */
+const ACRONYM_PLURAL = /^[A-Z]{2,}(?:e?s|ies)$/;
 
 /** Applies the casing of `source` to a table entry, which is stored lowercase. */
 function matchCase(source: string, replacement: string): string {

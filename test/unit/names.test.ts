@@ -48,6 +48,29 @@ describe("splitWords", () => {
     expect(splitWords("HTTPServer")).toEqual(["HTTP", "Server"]);
     expect(derived("HTTPServer").kebab).toBe("http-server");
   });
+
+  it.each([
+    ["user__name", ["user", "name"]],
+    ["_user", ["user"]],
+    ["user$id", ["user", "id"]],
+  ])(
+    "drops the empty run separators leave, so %s yields no blank word",
+    (input, expected) => {
+      expect(splitWords(input)).toEqual(expected);
+    },
+  );
+
+  it("discards a leading underscore rather than carrying it into every form", () => {
+    // A caller writing _user gets user back. The underscore is a visibility
+    // convention on one declaration, not part of the name being derived, and
+    // carrying it through would produce file names like _user.ts.
+    expect(derived("_user")).toMatchObject({
+      camel: "user",
+      pascal: "User",
+      kebab: "user",
+      plural: "users",
+    });
+  });
 });
 
 describe("deriveNames casing", () => {
@@ -114,6 +137,25 @@ describe("deriveNames pluralisation", () => {
     expect(series.plural).toBe("Series");
     expect(series.pluralEqualsSingular).toBe(true);
     expect(derived("Order").pluralEqualsSingular).toBe(false);
+  });
+
+  it.each([
+    ["ID", "IDs"],
+    ["URL", "URLs"],
+    ["API", "APIs"],
+    ["UUID", "UUIDs"],
+    ["userID", "userIDs"],
+    ["ResourceURL", "ResourceURLs"],
+  ])("keeps the acronym intact when pluralising %s", (singular, plural) => {
+    expect(derived(singular).plural).toBe(plural);
+  });
+
+  it("upper-cases a table plural for a shouted word, which is not an acronym", () => {
+    // CHILD is a word in caps, so the whole table entry follows the source's
+    // case. ID is an acronym, so only the suffix is lowered. The two rules
+    // disagree by design; neither reading applies to both inputs.
+    expect(derived("CHILD").plural).toBe("CHILDREN");
+    expect(derived("ID").plural).toBe("IDs");
   });
 });
 

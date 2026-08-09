@@ -166,6 +166,22 @@ describe("agreement between the two paths", () => {
     expect(verdicts.stable.map((d) => d.path)).toEqual(["a.ts", "b.ts", "c.ts"]);
     expect(verdicts.fast).toEqual(verdicts.stable);
   });
+
+  it("both order several diagnostics within one file by code", async () => {
+    // Ordering by path alone leaves the order inside a file to whatever the compiler emits, which
+    // is the sort of detail that shifts between versions and would churn a caller's output.
+    const files: BundleFile[] = [
+      {
+        path: "index.ts",
+        contents: "export const a: string = 1;\nexport const b: number = missing;\n",
+      },
+    ];
+    const verdicts = await bothVerdicts(files, conventions());
+    const codes = verdicts.stable.map((d) => d.code);
+    expect(codes.length).toBeGreaterThan(1);
+    expect(codes).toEqual(codes.toSorted((x, y) => x - y));
+    expect(verdicts.fast).toEqual(verdicts.stable);
+  });
 });
 
 describe("hermetic boundary", () => {
@@ -185,6 +201,21 @@ describe("hermetic boundary", () => {
       conventions(),
     );
     expect(outcome.diagnostics.map((d) => d.code)).toEqual([2307]);
+  });
+
+  it("does not resolve a bare specifier from the host's node_modules", async () => {
+    // zod is a real dependency of this repository with real published types, so a bundle that could
+    // reach the host's node_modules would typecheck against a package the consumer may not have.
+    // Three separate layers stop it: the bundle root is not a real directory, directory questions
+    // are answered for the root and the lib directory only, and non-lib files are never read from
+    // disk. Opening any one of them alone leaves this passing; opening all three makes it fail,
+    // which is the point of stating the property rather than testing one layer.
+    const files: BundleFile[] = [
+      { path: "index.ts", contents: 'import { z } from "zod";\nexport const s = z.string();\n' },
+    ];
+    const verdicts = await bothVerdicts(files, conventions());
+    expect(verdicts.stable.map((d) => d.code)).toEqual([2307]);
+    expect(verdicts.fast).toEqual(verdicts.stable);
   });
 
   it("reads lib files, so globals resolve", async () => {

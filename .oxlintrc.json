@@ -19,7 +19,48 @@
               }
             ]
           }
+        ],
+        "no-restricted-properties": [
+          "error",
+          {
+            "object": "Date",
+            "property": "now",
+            "message": "The engine must be deterministic: identical requests produce identical bytes. Take a timestamp in the adapter and pass it in if one is genuinely needed."
+          },
+          {
+            "object": "Math",
+            "property": "random",
+            "message": "The engine must be deterministic. Derive any varying value from the request instead."
+          },
+          {
+            "object": "performance",
+            "property": "now",
+            "message": "The engine must be deterministic. Measure in the adapter or in tests, not in generation."
+          },
+          {
+            "object": "process",
+            "property": "env",
+            "message": "Reading the environment makes output depend on where the server was started. Pass configuration in as an argument."
+          }
+        ],
+        "no-restricted-globals": [
+          "error",
+          {
+            "name": "process",
+            "message": "The engine must not depend on the host process. Aliasing it defeats the no-restricted-properties guard, so the global itself is off limits outside src/engine/verify."
+          },
+          {
+            "name": "performance",
+            "message": "The engine must be deterministic. Measure in the adapter or in tests, not in generation."
+          }
         ]
+      }
+    },
+    {
+      "files": ["src/engine/verify/**/*.ts"],
+      "rules": {
+        "no-restricted-properties": "off",
+        "no-restricted-globals": "off"
       }
     }
   ]
