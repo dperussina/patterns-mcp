@@ -159,6 +159,15 @@ export async function warmFormatter(): Promise<void> {
   await warming;
 }
 
+/**
+ * The exact formatter a bundle was produced with, for its verification record. Read from Prettier
+ * itself rather than from our own package manifest, so it cannot drift from the version that actually
+ * formatted the bytes.
+ */
+export function formatterVersion(): string {
+  return `prettier@${prettier.version}`;
+}
+
 function compare(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0;
 }

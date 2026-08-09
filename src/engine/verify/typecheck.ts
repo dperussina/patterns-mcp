@@ -136,14 +136,18 @@ function moduleOptions(
 /**
  * Holds the warm compiler. Create one, keep it, dispose it on shutdown.
  *
- * Not safe for concurrent `check` calls on a single instance: the file tree is swapped in place, so
- * two overlapping checks would see each other's files. Callers needing concurrency should hold one
- * checker per worker.
+ * Concurrent `check` calls are safe, but they are serialised rather than run in parallel. The file
+ * tree is swapped in place and the compiler is a single subprocess, so overlapping checks would
+ * otherwise verify one caller's bundle against another's files — and interleaved snapshot updates
+ * wedge the subprocess outright. Serialising costs nothing real: one compiler cannot check two
+ * bundles at once, and a queued check still gets the warm instance (~13ms against ~130ms cold).
  */
 export class Typechecker implements Verifier {
   #api: API | undefined;
   readonly #vfs: MutableVerificationFileSystem;
   readonly #timeoutMs: number;
+  /** Tail of the queue of checks. Always settled fulfilled, so one failure cannot reject the next. */
+  #queue: Promise<void> = Promise.resolve();
 
   constructor(options: { readonly timeoutMs?: number } = {}) {
     this.#vfs = createMutableVerificationFileSystem();
@@ -152,9 +156,11 @@ export class Typechecker implements Verifier {
 
   /** Pays the ~130ms cold cost up front, so the first real request does not. */
   async warm(): Promise<void> {
-    await this.#check(
-      [{ path: "index.ts", contents: "export const warm = true;\n" }],
-      { strict: true },
+    await this.#exclusive(
+      async () =>
+        await this.#check([{ path: "index.ts", contents: "export const warm = true;\n" }], {
+          strict: true,
+        }),
     );
   }
 
@@ -163,8 +169,26 @@ export class Typechecker implements Verifier {
     conventions: Conventions,
   ): Promise<TypecheckOutcome> {
     const compilerOptions = compilerOptionsFor(conventions);
-    const diagnostics = await this.#check(files, compilerOptions);
+    const diagnostics = await this.#exclusive(
+      async () => await this.#check(files, compilerOptions),
+    );
     return { diagnostics, compilerOptions, compilerVersion };
+  }
+
+  /**
+   * Runs `work` with exclusive use of the file tree and the compiler.
+   *
+   * The deadline inside `#check` starts only once the turn arrives, so a request that spends time
+   * queued is not charged for the wait — otherwise a burst of callers would time out for no reason
+   * other than being last in line.
+   */
+  #exclusive<T>(work: () => Promise<T>): Promise<T> {
+    const turn = this.#queue.then(work);
+    this.#queue = turn.then(
+      () => undefined,
+      () => undefined,
+    );
+    return turn;
   }
 
   async dispose(): Promise<void> {

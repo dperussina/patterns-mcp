@@ -28,6 +28,8 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import ts from "typescript-stable";
 
+import { bareRequires, shimFilesFor } from "./test-shims.js";
+
 import type { BundleFile } from "./typecheck.js";
 
 /** `skipped` means there was nothing to run. A failure is never a returnable state (FR-005). */
@@ -89,10 +91,25 @@ async function materialise(directory: string, files: readonly BundleFile[]): Pro
   // CommonJS, so that an extensionless specifier resolves; ESM has no extension search.
   await writeFile(join(directory, "package.json"), `${JSON.stringify({ type: "commonjs" })}\n`);
 
+  const required = new Set<string>();
+
   for (const file of files) {
+    const transpiled = transpile(file);
+    for (const specifier of bareRequires(transpiled)) {
+      required.add(specifier);
+    }
     const target = join(directory, toJsPath(file.path));
     await mkdir(dirname(target), { recursive: true });
-    await writeFile(target, transpile(file));
+    await writeFile(target, transpiled);
+  }
+
+  // A suite written for the caller's runner needs that runner to resolve, and the sandbox has no
+  // node_modules by design. Supplying a shim from inside it keeps the boundary closed while still
+  // executing the caller's own test bytes (see test-shims.ts).
+  for (const [path, contents] of shimFilesFor([...required])) {
+    const target = join(directory, path);
+    await mkdir(dirname(target), { recursive: true });
+    await writeFile(target, contents);
   }
 }
 

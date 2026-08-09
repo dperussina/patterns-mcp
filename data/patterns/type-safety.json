@@ -1,0 +1,49 @@
+{
+  "patterns": [
+    {
+      "name": "result",
+      "title": "Result Type",
+      "category": "type-safety",
+      "kind": "generative",
+      "intent": "Model an operation's failure as a value in its return type instead of a thrown exception.",
+      "supportsSplit": false,
+      "variants": ["tagged"],
+      "options": [
+        {
+          "name": "emitScope",
+          "type": "enum",
+          "values": ["full", "core-only"],
+          "default": "full",
+          "description": "Which part of the bundle to emit. This pattern is a single module with no per-type binding, so binding-only is not offered.",
+          "affects": ["files"]
+        },
+        {
+          "name": "includeTests",
+          "type": "boolean",
+          "default": true,
+          "description": "Emit an executable test suite alongside the implementation.",
+          "affects": ["files"]
+        },
+        {
+          "name": "includeAsync",
+          "type": "boolean",
+          "default": true,
+          "description": "Emit the async combinators (fromPromise, mapAsync, andThenAsync) in addition to the synchronous surface.",
+          "affects": ["core"]
+        },
+        {
+          "name": "includeCollections",
+          "type": "boolean",
+          "default": true,
+          "description": "Emit the collection combinators (all, partition) that turn many results into one.",
+          "affects": ["core"]
+        }
+      ],
+      "legality": [],
+      "relatedPatterns": [],
+      "provenance": "Original implementation. The Result shape is a general-purpose idea with no single owner, expressed here in ordinary TypeScript rather than adapted from any specific library.",
+      "license": "original",
+      "tier": 1
+    }
+  ]
+}

@@ -243,3 +243,58 @@ describe("warm reuse", () => {
     }
   });
 });
+
+const clean = (name: string): BundleFile[] => [
+  { path: "index.ts", contents: `export const ${name} = "${name}" as const;\n` },
+];
+const broken = (name: string): BundleFile[] => [
+  { path: "index.ts", contents: `export const ${name}: number = "not a number";\n` },
+];
+
+/**
+ * One instance holds one mutable file tree and one compiler subprocess, so overlapping checks are
+ * the case most able to return a wrong answer: a bundle can be verified against another's files and
+ * be reported clean. These run against a dedicated instance so a wedged compiler cannot take the
+ * rest of the file down with it.
+ */
+describe("overlapping checks on one instance", () => {
+  it("gives every caller a verdict about their own files", async () => {
+    const shared = new Typechecker();
+    try {
+      const outcomes = await Promise.all([
+        shared.check(clean("first"), conventions()),
+        shared.check(broken("second"), conventions()),
+        shared.check(clean("third"), conventions()),
+        shared.check(broken("fourth"), conventions()),
+        shared.check(clean("fifth"), conventions()),
+      ]);
+
+      // A failure that leaked the neighbouring bundle would show up here as the wrong verdict
+      // rather than as an error, which is why the shape is asserted per position.
+      expect(outcomes.map((outcome) => outcome.diagnostics.length > 0)).toEqual([
+        false,
+        true,
+        false,
+        true,
+        false,
+      ]);
+    } finally {
+      await shared.dispose();
+    }
+  });
+
+  it("reports each caller's own compiler options, not the last writer's", async () => {
+    const shared = new Typechecker();
+    try {
+      const [loose, strictest] = await Promise.all([
+        shared.check(clean("loose"), conventions({ strictness: "loose" })),
+        shared.check(clean("strictest"), conventions({ strictness: "strictest" })),
+      ]);
+
+      expect(loose.compilerOptions).toMatchObject({ strict: false });
+      expect(strictest.compilerOptions).toMatchObject({ noUncheckedIndexedAccess: true });
+    } finally {
+      await shared.dispose();
+    }
+  });
+});
