@@ -52,11 +52,11 @@ Single published package with three entry points, per plan.md: `src/engine/` (pu
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete.
 
-- [ ] T007 [P] Define Zod schemas for `Option`, `LegalityRule`, and `Pattern` in `src/engine/catalog/schema.ts` per data-model.md, including the identifier and length rules
-- [ ] T008 [P] Define the `Conventions` schema with strictest-reasonable defaults in `src/engine/options/conventions.ts` per data-model.md
+- [X] T007 [P] Define Zod schemas for `Option`, `LegalityRule`, and `Pattern` in `src/engine/catalog/schema.ts` per data-model.md, including the identifier and length rules
+- [X] T008 [P] Define the `Conventions` schema with strictest-reasonable defaults in `src/engine/options/conventions.ts` per data-model.md
 - [ ] T009 Generate `data/schema.json` from the Zod schemas in `scripts/emit-catalog-schema.ts` so the published schema cannot drift from the runtime validator
 - [ ] T010 Implement catalog loading and shard merging with name-uniqueness and `relatedPatterns` reference checks in `src/engine/catalog/load.ts`
-- [ ] T011 [P] Write the catalog validator script `scripts/validate-catalog.ts` enforcing schema conformance, presence of `provenance`, rejection of NonCommercial and NoDerivatives license terms, and the advisory-entry invariants (FR-036, SC-012)
+- [ ] T011 [P] Write the catalog validator script `scripts/validate-catalog.ts` enforcing schema conformance, presence of `provenance`, rejection of NonCommercial and NoDerivatives license terms, and the advisory-entry invariants (FR-036, SC-012). Note: T007 made the licence allowlist, the advisory invariants, and self-edge rejection structural in `PatternSchema`, so this script enforces them by parsing rather than by re-checking them; its remaining own work is cross-shard name uniqueness and `relatedPatterns` resolution
 - [ ] T012 [P] Implement render helpers `dedent`, `indent`, `when`, `joinLines`, and `sortBy` in `src/engine/render/helpers.ts` — tagged template literals only, no template engine, so option renames break the build
 - [ ] T013 [P] Implement identifier validation, the reserved-word denylist, and string length caps in `src/engine/options/identifiers.ts` (FR-032). The denylist must also cover identifiers the requested pattern itself emits, since a domain name colliding with a generated helper produces uncompilable output just as surely as a keyword does (spec edge case)
 - [ ] T099 [P] Implement the name derivation table in `src/engine/options/names.ts` plus its data in `data/names.json`: plural forms with an explicit irregular-exception list, casing variants, and file-name stems. No pluralization library — a version bump in one would silently rename members across every consumer's regenerated output (FR-040, Principle I)
