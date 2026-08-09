@@ -33,6 +33,7 @@
  */
 
 import type { FileSystem, FileSystemEntries } from "typescript/unstable/fs";
+import type { FileChangeSummary } from "typescript/unstable/proto";
 
 /** Matches `lib.d.ts`, `lib.es2022.d.ts`, `lib.dom.iterable.d.ts`, and the rest of the family. */
 const LIB_FILE = /^lib\.[a-z0-9.]*d\.ts$/;
@@ -52,36 +53,107 @@ export function isLibPath(path: string): boolean {
   return LIB_FILE.test(basename(path));
 }
 
+/**
+ * A file system whose contents can be swapped between checks, so one warmed compiler instance can
+ * serve many bundles. Cold checks cost ~130ms against ~13ms warm, so reuse is the difference between
+ * verification being affordable on every request and not.
+ *
+ * `replace` returns the change summary rather than leaving the caller to describe what it did. That
+ * is deliberate: the compiler serves a cached result when it is not told what changed, so a caller
+ * who swapped the files but forgot to report it receives a verdict about the *previous* bundle.
+ * Measured, not theorised — a broken bundle came back with zero diagnostics that way. Deriving the
+ * summary from the same map the compiler reads removes the chance to get it wrong.
+ */
+export interface MutableVerificationFileSystem {
+  readonly fs: FileSystem;
+  /** Swap the whole tree, returning the summary to hand to `updateSnapshot`. */
+  replace(files: Readonly<Record<string, string>>): FileChangeSummary;
+}
+
+interface Tree {
+  files: Map<string, string>;
+  directories: ReadonlySet<string>;
+}
+
 export function createVerificationFileSystem(options: VerificationFileSystemOptions): FileSystem {
   const files = new Map(Object.entries(options.files));
-  const readThrough = options.readThrough ?? isLibPath;
-  const directories = collectDirectories(files.keys());
+  return fileSystemOver(
+    { files, directories: collectDirectories(files.keys()) },
+    options.readThrough ?? isLibPath,
+  );
+}
 
-  const owns = (path: string): boolean => files.has(path) || directories.has(path);
+export function createMutableVerificationFileSystem(
+  options: Omit<VerificationFileSystemOptions, "files"> & {
+    readonly files?: Readonly<Record<string, string>>;
+  } = {},
+): MutableVerificationFileSystem {
+  const initial = new Map(Object.entries(options.files ?? {}));
+  const tree: Tree = { files: initial, directories: collectDirectories(initial.keys()) };
+
+  return {
+    fs: fileSystemOver(tree, options.readThrough ?? isLibPath),
+    replace(files) {
+      const next = new Map(Object.entries(files));
+      const summary = diff(tree.files, next);
+      tree.files = next;
+      tree.directories = collectDirectories(next.keys());
+      return summary;
+    },
+  };
+}
+
+/**
+ * Sorted so the request is byte-identical for identical work, and so a failure is reproducible
+ * rather than dependent on map iteration order.
+ */
+function diff(before: ReadonlyMap<string, string>, after: ReadonlyMap<string, string>): FileChangeSummary {
+  const created: string[] = [];
+  const changed: string[] = [];
+  const deleted: string[] = [];
+
+  for (const [path, contents] of after) {
+    const previous = before.get(path);
+    if (previous === undefined) created.push(path);
+    else if (previous !== contents) changed.push(path);
+  }
+  for (const path of before.keys()) {
+    if (!after.has(path)) deleted.push(path);
+  }
+
+  return {
+    created: created.toSorted(compare),
+    changed: changed.toSorted(compare),
+    deleted: deleted.toSorted(compare),
+  };
+}
+
+function fileSystemOver(tree: Tree, readThrough: (path: string) => boolean): FileSystem {
+  const owns = (path: string): boolean => tree.files.has(path) || tree.directories.has(path);
 
   return {
     readFile(fileName) {
-      const content = files.get(fileName);
+      const content = tree.files.get(fileName);
       if (content !== undefined) return content;
       if (readThrough(fileName)) return undefined;
       return null;
     },
 
     fileExists(fileName) {
-      if (files.has(fileName)) return true;
+      if (tree.files.has(fileName)) return true;
       if (readThrough(fileName)) return undefined;
       return false;
     },
 
     directoryExists(directoryName) {
-      if (directories.has(directoryName)) return true;
+      if (tree.directories.has(directoryName)) return true;
       // No opinion. Claiming a real directory is absent would break lib resolution.
       return undefined;
     },
 
     getAccessibleEntries(directoryName) {
-      if (!directories.has(directoryName)) return undefined;
-      return entriesOf(directoryName, files.keys(), directories);
+      if (!tree.directories.has(directoryName)) return undefined;
+      return entriesOf(directoryName, tree.files.keys(), tree.directories);
     },
 
     realpath(path) {

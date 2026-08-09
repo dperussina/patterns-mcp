@@ -36,3 +36,57 @@ Needs a decision before T057 emits headers.
 
 **Where it bites if unresolved**: T057 (header emission), and the diff-stability harness in T024/US1,
 which will assert what does and does not change a header.
+
+---
+
+## T020 — a compiler killed mid-write takes the host process with it (open question)
+
+**Status**: T020 shipped. Restart-on-crash works for every crash I could provoke except one narrow
+race, described below. Not blocking, but it needs an owner's decision before the server ships.
+
+**What happens**: kill the compiler subprocess and issue a request in the same tick, before Node has
+processed the stream teardown, and the vendored JSON-RPC writer inside `typescript@7.0.2` calls
+`write` on a destroyed stream. It throws from inside a promise executor that nothing awaits, so it
+arrives as an unhandled rejection — fatal by default on Node 22. There is no seam for us to catch it:
+the throw is in `vendor/vscode-jsonrpc/lib/node/ril.js`, not in our await chain.
+
+**Measured**: at 0ms after the kill, the process dies. At 100ms, 500ms, and 1500ms, the retry recovers
+in 35–58ms. So a compiler that dies on its own — the realistic case, since something must notice and
+close the socket — is fully recoverable. Only a same-tick race is fatal.
+
+**What I did**: added a deadline (a dead compiler does not reliably reject the request in flight, so
+without one a crash could hold a request open forever) and made failure `#abandon` the compiler rather
+than close it, because closing ends the pipe underneath a queued write and reproduces the same
+unhandled error from our own recovery path. That one I could fix, and did.
+
+**Recommendation**: the adapter that owns the process — MCP server or CLI, not the engine — installs a
+`process.on("unhandledRejection")` handler that identifies `ERR_STREAM_DESTROYED` and
+`ERR_STREAM_WRITE_AFTER_END` originating in the compiler transport and treats them as a compiler
+restart rather than a fatal fault. A library installing a global handler would be overreach, which is
+why the engine does not. Worth reporting upstream as well: the writer should guard `write` on a
+destroyed stream.
+
+**Where it bites if unresolved**: T088/T089 (server lifecycle) and T021, whose stable fallback is the
+mitigation if the unstable transport proves too fragile under load.
+
+---
+
+## T020 — warm verification is ~13ms, not the ~5ms plan.md budgets (open question)
+
+**Status**: T020 shipped. Does not threaten the end-to-end goal. Recorded because the number in
+plan.md is now known to be wrong.
+
+**Measured here**, async API, warm, median of 12 runs: 12.6ms for a seven-file bundle, ~9ms for two
+files, ~130ms cold. plan.md's Performance Goals give "warm verification under 5ms per bundle
+(typecheck measured at ~2.4ms via the async API)". The research figure was likely the diagnostics call
+alone; the 12.6ms here covers `updateSnapshot` plus `getSemanticDiagnostics`, which is what a request
+actually pays.
+
+**Why it is not urgent**: the binding goal is end-to-end generation p95 under 50ms excluding transport.
+At ~13ms, verification leaves ample room. The sub-budget is what is wrong, not the architecture.
+
+**Recommendation**: amend plan.md's verification budget to 15ms warm and keep the 50ms end-to-end goal,
+or accept the discrepancy explicitly. Do not chase 5ms by weakening verification.
+
+**Where it bites if unresolved**: T093 (performance validation) will measure against whichever number
+plan.md states.
