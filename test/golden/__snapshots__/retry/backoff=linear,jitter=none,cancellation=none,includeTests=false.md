@@ -15,10 +15,12 @@
 /**
  * Retrying an operation that fails transiently.
  *
- * The delay grows by the base delay each attempt, capped at `maxDelayMs`, and is used exactly as computed.
+ * The delay grows by the base delay each attempt, capped at `maxDelayMs`, and
+ * is used exactly as computed.
  *
- * Waiting is injectable, which is what makes the schedule testable: pass a `sleep` that records
- * its argument instead of spending it, and the delays become values you can assert.
+ * Waiting is injectable, which is what makes the schedule testable: pass a
+ * `sleep` that records its argument instead of spending it, and the delays
+ * become values you can assert.
  */
 
 export interface OrderRetryPolicy {
@@ -50,15 +52,17 @@ export interface OrderRetryAttempt {
 
 export interface OrderRetryOptions extends Partial<OrderRetryPolicy> {
   /**
-   * Whether `error` is worth another attempt. Defaults to retrying every failure, which is the
-   * wrong default for most callers: a 400 will still be a 400 on the fourth try. Narrow it.
+   * Whether `error` is worth another attempt. Defaults to retrying every
+   * failure, which is the wrong default for most callers: a 400 will still be a
+   * 400 on the fourth try. Narrow it.
    */
   readonly shouldRetry?: (error: unknown, attempt: number) => boolean;
   /** Called before each wait. The place to put a log line or a metric. */
   readonly onRetry?: (attempt: OrderRetryAttempt) => void;
   /**
-   * How to wait. Replaceable so tests can assert the schedule without spending it — the emitted
-   * suite passes one that records its arguments and returns immediately.
+   * How to wait. Replaceable so tests can assert the schedule without spending
+   * it — the emitted suite passes one that records its arguments and returns
+   * immediately.
    */
   readonly sleep?: (milliseconds: number) => Promise<void>;
 }
@@ -66,9 +70,10 @@ export interface OrderRetryOptions extends Partial<OrderRetryPolicy> {
 /**
  * Thrown when every attempt failed.
  *
- * Distinct from the failure it wraps, because "this call failed" and "this call failed every time
- * we tried" call for different responses. A failure the predicate declined to retry is rethrown
- * unchanged instead, so a `catch` testing for a specific error type still works.
+ * Distinct from the failure it wraps, because "this call failed" and "this call
+ * failed every time we tried" call for different responses. A failure the
+ * predicate declined to retry is rethrown unchanged instead, so a `catch`
+ * testing for a specific error type still works.
  */
 export class OrderRetryExhaustedError extends Error {
   readonly attempts: number;
@@ -86,8 +91,9 @@ export class OrderRetryExhaustedError extends Error {
 /**
  * How long to wait after `attempt` failed.
  *
- * Exported because it is the part with arithmetic in it: worth testing directly, and worth reusing
- * if you need to show a caller when the next attempt will happen.
+ * Exported because it is the part with arithmetic in it: worth testing
+ * directly, and worth reusing if you need to show a caller when the next
+ * attempt will happen.
  */
 export function delayFor(attempt: number, policy: OrderRetryPolicy): number {
   const raw = policy.baseDelayMs * attempt;
@@ -96,10 +102,11 @@ export function delayFor(attempt: number, policy: OrderRetryPolicy): number {
 }
 
 /**
- * Runs `operation` until it succeeds, the predicate declines, or the attempts run out.
+ * Runs `operation` until it succeeds, the predicate declines, or the attempts
+ * run out.
  *
- * The attempt number is passed to `operation` so it can vary what it does — logging the try, or
- * widening a timeout as the schedule stretches.
+ * The attempt number is passed to `operation` so it can vary what it does —
+ * logging the try, or widening a timeout as the schedule stretches.
  *
  * @throws the operation's own error, unchanged, when `shouldRetry` declines it.
  */

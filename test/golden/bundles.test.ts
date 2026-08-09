@@ -15,6 +15,7 @@ import {
   goldenFor,
   goldenPath,
   label,
+  overWideComments,
 } from "./harness.js";
 
 const patterns = await generativePatterns();
@@ -34,6 +35,14 @@ describe.each(patterns.map((pattern) => ({ pattern, name: pattern.name })))(
       "$case",
       async ({ combination }) => {
         const golden = await goldenFor(pattern, combination);
+
+        // Prettier never reflows comments, so before T114 a template's prose arrived at whatever width
+        // it happened to be written at — up to 172 columns in a file formatted to 80. Asserted here
+        // rather than trusted, because the format step is the only place that knows a comment's final
+        // column, and a regression would be invisible in every other test: the bundle still compiles
+        // and its suite still passes.
+        expect(overWideComments(golden)).toEqual([]);
+
         await expect(golden).toMatchFileSnapshot(goldenPath(pattern.name, combination));
       },
       180_000,

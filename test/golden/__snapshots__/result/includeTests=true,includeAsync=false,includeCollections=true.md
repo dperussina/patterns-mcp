@@ -50,7 +50,10 @@ export interface Err<E> {
 export function ok<T>(value: T): OrderResult<T, never> {
   return { ok: true, value };
 }
-/** Wraps a failure. Mirrors `ok`, with `never` on the success side for the same reason. */
+/**
+ * Wraps a failure. Mirrors `ok`, with `never` on the success side for the same
+ * reason.
+ */
 export function err<E>(error: E): OrderResult<never, E> {
   return { ok: false, error };
 }
@@ -124,7 +127,10 @@ export function unwrap<T, E>(result: OrderResult<T, E>): T {
     ? result.error
     : new Error(String(result.error));
 }
-/** Collapses both arms to one type, so a caller can render either outcome in one expression. */
+/**
+ * Collapses both arms to one type, so a caller can render either outcome in one
+ * expression.
+ */
 export function match<T, E, U>(
   result: OrderResult<T, E>,
   cases: { readonly ok: (value: T) => U; readonly err: (error: E) => U },

@@ -18,6 +18,8 @@
  */
 import * as prettier from "prettier";
 
+import { DEFAULT_PRINT_WIDTH, reflowComments } from "./reflow.js";
+
 /**
  * Style options a caller may set.
  *
@@ -132,12 +134,21 @@ export async function formatSource(
   const options = mergeFormatOptions(callerConfig);
 
   try {
-    return await prettier.format(source, options);
+    const formatted = await prettier.format(source, options);
+    // Prettier reflows code and never comments, so this is the only step that can hold a generated
+    // comment to the width its code was formatted to. See reflow.ts for why a template cannot.
+    return reflowComments(formatted, printWidthOf(options));
   } catch (cause) {
     throw new FormatError(
       cause instanceof Error ? cause.message : String(cause),
     );
   }
+}
+
+function printWidthOf(options: prettier.Options): number {
+  return typeof options.printWidth === "number"
+    ? options.printWidth
+    : DEFAULT_PRINT_WIDTH;
 }
 
 let warming: Promise<void> | undefined;

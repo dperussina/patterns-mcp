@@ -76,7 +76,10 @@ export interface OrderBreakerOptions extends Partial<OrderBreakerPolicy> {
    */
   readonly onStateChange?: (change: BreakerStateChange) => void;
 }
-/** What `snapshot` reports. Enough to render a dashboard, and nothing a caller can mutate. */
+/**
+ * What `snapshot` reports. Enough to render a dashboard, and nothing a caller
+ * can mutate.
+ */
 export interface BreakerSnapshot {
   readonly state: BreakerState;
   /** Failures currently counting towards the threshold. */
@@ -148,16 +151,19 @@ export class OrderCircuitBreaker {
   /**
    * The current arm.
    *
-   * Reading this can itself cause a transition: an open breaker whose cooldown has expired becomes
-   * half-open the moment anyone looks, because there is no timer to do it. That keeps the state
-   * machine driven entirely by the injected clock and leaves nothing running in the background.
+   * Reading this can itself cause a transition: an open breaker whose cooldown
+   * has expired becomes half-open the moment anyone looks, because there is no
+   * timer to do it. That keeps the state machine driven entirely by the
+   * injected clock and leaves nothing running in the background.
    */
   get state(): BreakerState {
     this.#admitIfCooled();
     return this.#state;
   }
 
-  /** Milliseconds until a probe is admitted. 0 whenever the breaker is not open. */
+  /**
+   * Milliseconds until a probe is admitted. 0 whenever the breaker is not open.
+   */
   get retryAfterMs(): number {
     this.#admitIfCooled();
     if (this.#state !== "open") {
@@ -180,8 +186,8 @@ export class OrderCircuitBreaker {
   /**
    * Runs `operation` unless the breaker forbids it.
    *
-   * @throws OrderBreakerOpenError without calling `operation` when the breaker is open, or when it is
-   * half-open and the probes are already taken.
+   * @throws OrderBreakerOpenError without calling `operation` when the breaker
+   * is open, or when it is half-open and the probes are already taken.
    */
   async run<T>(operation: () => Promise<T>): Promise<T> {
     this.#admitIfCooled();
@@ -203,15 +209,19 @@ export class OrderCircuitBreaker {
       if (this.#isFailure(error)) {
         this.#recordFailure(probing);
       } else if (probing) {
-        // Not the dependency's fault, so it neither closes the breaker nor re-opens it. The probe
-        // slot is released, and the next caller gets to be the one that decides.
+        // Not the dependency's fault, so it neither closes the breaker nor
+        // re-opens it. The probe slot is released, and the next caller gets to
+        // be the one that decides.
         this.#probesInFlight -= 1;
       }
       throw error;
     }
   }
 
-  /** Forces the breaker open, for a caller that learned the dependency is down some other way. */
+  /**
+   * Forces the breaker open, for a caller that learned the dependency is down
+   * some other way.
+   */
   trip(): void {
     this.#open();
   }
@@ -262,8 +272,8 @@ export class OrderCircuitBreaker {
   #recordFailure(probing: boolean): void {
     if (probing) {
       this.#probesInFlight -= 1;
-      // One bad probe is enough: the dependency is not back, and admitting more would spend the
-      // load the breaker exists to withhold.
+      // One bad probe is enough: the dependency is not back, and admitting more
+      // would spend the load the breaker exists to withhold.
       this.#open();
       return;
     }
@@ -295,7 +305,10 @@ export class OrderCircuitBreaker {
     this.#clearFailures();
   }
 
-  /** Records the arm and reports the transition. A move to the arm already held is not a change. */
+  /**
+   * Records the arm and reports the transition. A move to the arm already held
+   * is not a change.
+   */
   #enter(to: BreakerState): void {
     const from = this.#state;
     this.#state = to;
@@ -622,7 +635,8 @@ describe("probing for recovery", () => {
     time.advance(1000);
 
     await succeedOnce(breaker);
-    // One good call is not evidence enough; a flapping dependency produces those.
+    // One good call is not evidence enough; a flapping dependency produces
+    // those.
     expect(breaker.state).toBe("half-open");
 
     await succeedOnce(breaker);
@@ -638,8 +652,8 @@ describe("probing for recovery", () => {
 
     await failOnce(breaker);
     expect(breaker.state).toBe("open");
-    // The cooldown restarts from the failed probe, rather than from when it first
-    // opened.
+    // The cooldown restarts from the failed probe, rather than from when it
+    // first opened.
     expect(breaker.retryAfterMs).toBe(1000);
   });
 });

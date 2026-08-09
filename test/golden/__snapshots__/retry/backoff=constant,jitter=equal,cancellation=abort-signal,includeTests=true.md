@@ -15,11 +15,13 @@
 /**
  * Retrying an operation that fails transiently.
  *
- * The delay is the same every attempt, capped at `maxDelayMs`, and is then randomised across its upper half, keeping a floor under each wait.
+ * The delay is the same every attempt, capped at `maxDelayMs`, and is then
+ * randomised across its upper half, keeping a floor under each wait.
  *
- * Waiting and randomness are both injectable, which is what makes the schedule testable: pass a
- * `sleep` that records its argument and a `random` that returns a fixed sequence, and the delays
- * become exact values you can assert rather than time you have to spend.
+ * Waiting and randomness are both injectable, which is what makes the schedule
+ * testable: pass a `sleep` that records its argument and a `random` that
+ * returns a fixed sequence, and the delays become exact values you can assert
+ * rather than time you have to spend.
  */
 
 export interface OrderRetryPolicy {
@@ -51,37 +53,44 @@ export interface OrderRetryAttempt {
 
 export interface OrderRetryOptions extends Partial<OrderRetryPolicy> {
   /**
-   * Whether `error` is worth another attempt. Defaults to retrying every failure, which is the
-   * wrong default for most callers: a 400 will still be a 400 on the fourth try. Narrow it.
+   * Whether `error` is worth another attempt. Defaults to retrying every
+   * failure, which is the wrong default for most callers: a 400 will still be a
+   * 400 on the fourth try. Narrow it.
    */
   readonly shouldRetry?: (error: unknown, attempt: number) => boolean;
   /** Called before each wait. The place to put a log line or a metric. */
   readonly onRetry?: (attempt: OrderRetryAttempt) => void;
   /**
-   * How to wait. Replaceable so tests can assert the schedule without spending it — the emitted
-   * suite passes one that records its arguments and returns immediately.
+   * How to wait. Replaceable so tests can assert the schedule without spending
+   * it — the emitted suite passes one that records its arguments and returns
+   * immediately.
    */
   readonly sleep?: (
     milliseconds: number,
     signal?: AbortSignal,
   ) => Promise<void>;
   /**
-   * Where jitter comes from. Replaceable for the same reason as `sleep`: a schedule that draws on
-   * `Math.random` cannot be asserted, so the emitted tests supply a fixed sequence.
+   * Where jitter comes from. Replaceable for the same reason as `sleep`: a
+   * schedule that draws on `Math.random` cannot be asserted, so the emitted
+   * tests supply a fixed sequence.
    *
    * Must return a value in [0, 1).
    */
   readonly random?: () => number;
-  /** Abandons the loop, including mid-wait. The signal's reason is what gets thrown. */
+  /**
+   * Abandons the loop, including mid-wait. The signal's reason is what gets
+   * thrown.
+   */
   readonly signal?: AbortSignal;
 }
 
 /**
  * Thrown when every attempt failed.
  *
- * Distinct from the failure it wraps, because "this call failed" and "this call failed every time
- * we tried" call for different responses. A failure the predicate declined to retry is rethrown
- * unchanged instead, so a `catch` testing for a specific error type still works.
+ * Distinct from the failure it wraps, because "this call failed" and "this call
+ * failed every time we tried" call for different responses. A failure the
+ * predicate declined to retry is rethrown unchanged instead, so a `catch`
+ * testing for a specific error type still works.
  */
 export class OrderRetryExhaustedError extends Error {
   readonly attempts: number;
@@ -99,8 +108,9 @@ export class OrderRetryExhaustedError extends Error {
 /**
  * How long to wait after `attempt` failed.
  *
- * Exported because it is the part with arithmetic in it: worth testing directly, and worth reusing
- * if you need to show a caller when the next attempt will happen.
+ * Exported because it is the part with arithmetic in it: worth testing
+ * directly, and worth reusing if you need to show a caller when the next
+ * attempt will happen.
  *
  * `random` must return a value in [0, 1).
  */
@@ -115,14 +125,15 @@ export function delayFor(
 }
 
 /**
- * Runs `operation` until it succeeds, the predicate declines, or the attempts run out.
+ * Runs `operation` until it succeeds, the predicate declines, or the attempts
+ * run out.
  *
- * The attempt number is passed to `operation` so it can vary what it does — logging the try, or
- * widening a timeout as the schedule stretches.
+ * The attempt number is passed to `operation` so it can vary what it does —
+ * logging the try, or widening a timeout as the schedule stretches.
  *
- * Aborting the signal ends the loop promptly, including part-way through a wait, by throwing the
- * signal's reason. An operation already in flight is not itself cancelled: pass the signal into it if
- * it supports one.
+ * Aborting the signal ends the loop promptly, including part-way through a
+ * wait, by throwing the signal's reason. An operation already in flight is not
+ * itself cancelled: pass the signal into it if it supports one.
  *
  * @throws the operation's own error, unchanged, when `shouldRetry` declines it.
  */
@@ -177,8 +188,9 @@ export async function retryOrder<T>(
 /**
  * The default wait.
  *
- * The abort listener is removed on the normal path so that a long-lived signal does not accumulate
- * one listener per retry, which is the leak this kind of helper usually ships with.
+ * The abort listener is removed on the normal path so that a long-lived signal
+ * does not accumulate one listener per retry, which is the leak this kind of
+ * helper usually ships with.
  */
 function delay(milliseconds: number, signal?: AbortSignal): Promise<void> {
   return new Promise<void>((resolve, reject) => {
@@ -486,8 +498,8 @@ describe("cancellation", () => {
     } catch (error) {
       thrown = error;
     }
-    // One attempt, one wait, then the abort is observed at the top of the second
-    // pass.
+    // One attempt, one wait, then the abort is observed at the top of the
+    // second pass.
     expect(attempts).toBe(1);
     expect(thrown).toBeInstanceOf(Error);
   });

@@ -144,9 +144,14 @@ export function wrapProse(text: string, width = PROSE_WIDTH): string[] {
  *
  * Templates assemble doc comments from conditional pieces, and doing that by
  * hand means every author re-derives the ` * ` prefixes and the blank-line
- * conventions — and gets the wrapping wrong, because a template literal shows
- * no column ruler. Blank paragraphs are dropped, so a paragraph that only
- * applies under one option can be interpolated unconditionally.
+ * conventions. Blank paragraphs are dropped, so a paragraph that only applies
+ * under one option can be interpolated unconditionally.
+ *
+ * The wrapping here is a convenience, not the guarantee: the format step
+ * reflows every generated comment to the caller's `printWidth`, which is the
+ * only place that knows what column a composed fragment finally lands at
+ * (`format/reflow.ts`). What this buys is a template whose own source reads
+ * like the file it produces.
  */
 export function doc(...paragraphs: readonly Renderable[]): string {
   return docAt(0, ...paragraphs);
