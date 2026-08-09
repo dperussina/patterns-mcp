@@ -67,6 +67,31 @@ describe("a successful generate_pattern call", () => {
     expect(bundle.verification.contentHash).toMatch(/^[0-9a-f]{16}$/);
   }, 120_000);
 
+  /**
+   * The catalog validator refuses `verbosity` as a pattern option because it would enter the resolved
+   * set and therefore the hash. That refusal only protects the property if the tool layer also keeps
+   * verbosity out of the request it hands the engine, which is what this checks: the hash identifies
+   * the bundle, and asking for a terser description of the same bundle cannot change what it is.
+   */
+  it("hashes the bundle, not the description of it", async () => {
+    const args = { pattern: "result", identifiers: { entity: "Order" } };
+
+    const verbose = await session.client.callTool({
+      name: "generate_pattern",
+      arguments: { ...args, verbosity: "full" },
+    });
+    const terse = await session.client.callTool({
+      name: "generate_pattern",
+      arguments: { ...args, verbosity: "summary" },
+    });
+
+    const a = bundleOf(verbose.structuredContent);
+    const b = bundleOf(terse.structuredContent);
+    expect(b.verification.contentHash).toBe(a.verification.contentHash);
+    expect(Object.keys(b.resolvedOptions)).toEqual(Object.keys(a.resolvedOptions));
+    expect(b.resolvedOptions.verbosity).toBeUndefined();
+  }, 120_000);
+
   it("carries a readable block alongside the structured result", async () => {
     const result = await session.client.callTool({
       name: "generate_pattern",

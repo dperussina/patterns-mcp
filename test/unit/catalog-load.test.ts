@@ -21,7 +21,17 @@ function pattern(name: string, relatedPatterns: string[] = []): unknown {
     intent: `Intent for ${name}.`,
     supportsSplit: false,
     variants: [],
-    options: [],
+    // Every generative pattern must declare this (data-model.md §"Shared base options"), so even a
+    // fixture that cares only about names and relations has to carry it.
+    options: [
+      {
+        name: "includeTests",
+        type: "boolean",
+        default: true,
+        description: "Emit an executable test suite alongside the implementation.",
+        affects: ["files"],
+      },
+    ],
     legality: [],
     relatedPatterns,
     provenance: "original",

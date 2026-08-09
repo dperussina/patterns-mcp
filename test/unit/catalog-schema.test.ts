@@ -15,6 +15,25 @@ const enumOption = {
   affects: ["core"],
 };
 
+/** Every generative pattern must declare this, so the shared fixture carries it. */
+const includeTestsOption = {
+  name: "includeTests",
+  type: "boolean",
+  default: true,
+  description: "Emit an executable test suite alongside the implementation.",
+  affects: ["files"],
+};
+
+/** Required of a pattern that declares `supportsSplit: true`. */
+const emitScopeOption = {
+  name: "emitScope",
+  type: "enum",
+  values: ["full", "core-only", "binding-only"],
+  default: "full",
+  description: "Which part of the bundle to emit.",
+  affects: ["files"],
+};
+
 const patternBase = {
   name: "result-type",
   title: "Result Type",
@@ -31,7 +50,7 @@ const generativePattern = {
   kind: "generative",
   supportsSplit: true,
   variants: [],
-  options: [enumOption],
+  options: [enumOption, emitScopeOption, includeTestsOption],
   legality: [],
 };
 
@@ -163,9 +182,133 @@ describe("PatternSchema", () => {
     const result = PatternSchema.safeParse({
       ...generativePattern,
       supportsSplit: false,
-      options: [],
+      options: [includeTestsOption],
     });
     expect(result.success).toBe(true);
+  });
+
+  /**
+   * The shared base options fix a vocabulary, not a checklist (data-model.md). These pin the half of
+   * that which is mechanical: which options must or must not appear, and that a declared one keeps its
+   * documented value space. Whether a given pattern *should* offer `errorMode` is a judgement the
+   * schema cannot make, and deliberately does not try to.
+   */
+  describe("the shared base options", () => {
+    it("requires includeTests, whose absence is always an oversight", () => {
+      const result = PatternSchema.safeParse({
+        ...generativePattern,
+        options: [enumOption, emitScopeOption],
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it("requires a splitting pattern to declare the scope it can split into", () => {
+      // `supportsSplit: true` with no emitScope leaves the capability unreachable: there is nothing
+      // for a caller to ask for.
+      const result = PatternSchema.safeParse({
+        ...generativePattern,
+        supportsSplit: true,
+        options: [includeTestsOption],
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it("rejects coreModule on a pattern that cannot split", () => {
+      const result = PatternSchema.safeParse({
+        ...generativePattern,
+        supportsSplit: false,
+        options: [
+          includeTestsOption,
+          {
+            name: "coreModule",
+            type: "string",
+            default: "",
+            description: "Where the shared machinery already lives.",
+            affects: ["core"],
+          },
+        ],
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it("rejects verbosity, which would otherwise enter the provenance hash", () => {
+      // Verbosity changes how a bundle is described, not what it contains. As a pattern option the
+      // identical bundle would hash differently per description, which is the one thing the hash
+      // must never do.
+      const result = PatternSchema.safeParse({
+        ...generativePattern,
+        options: [
+          includeTestsOption,
+          emitScopeOption,
+          {
+            name: "verbosity",
+            type: "enum",
+            values: ["full", "code-only", "summary"],
+            default: "full",
+            description: "How much of the bundle to render back.",
+            affects: ["files"],
+          },
+        ],
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it("rejects a base option that invents a value", () => {
+      const result = PatternSchema.safeParse({
+        ...generativePattern,
+        options: [
+          includeTestsOption,
+          emitScopeOption,
+          {
+            name: "cancellation",
+            type: "enum",
+            values: ["none", "abort-signal", "polling"],
+            default: "none",
+            description: "How the caller abandons the operation.",
+            affects: ["core"],
+          },
+        ],
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it("rejects a base option that drops a value", () => {
+      const result = PatternSchema.safeParse({
+        ...generativePattern,
+        options: [
+          includeTestsOption,
+          emitScopeOption,
+          {
+            name: "errorMode",
+            type: "enum",
+            values: ["result", "rejected-promise"],
+            default: "result",
+            description: "How failures surface to the caller.",
+            affects: ["core"],
+          },
+        ],
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it("accepts a base option declared with exactly its documented space", () => {
+      const result = PatternSchema.safeParse({
+        ...generativePattern,
+        options: [
+          includeTestsOption,
+          emitScopeOption,
+          {
+            name: "cancellation",
+            type: "enum",
+            values: ["abort-signal", "none"],
+            default: "abort-signal",
+            description: "Whether the loop accepts an AbortSignal.",
+            affects: ["core"],
+          },
+        ],
+      });
+      expect(result.success).toBe(true);
+    });
   });
 
   it.each(["CC-BY-NC-ND-4.0", "CC-BY-ND-4.0", "Weird-1.0"])(

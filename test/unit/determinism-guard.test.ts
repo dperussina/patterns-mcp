@@ -101,7 +101,8 @@ const pattern: GenerativePattern = generative({
     {
       name: "emitScope",
       type: "enum",
-      values: ["full", "core-only"],
+      // The full documented space, since a base option may not narrow its own vocabulary.
+      values: ["full", "core-only", "binding-only"],
       default: "full",
       description: "Which part of the bundle to emit.",
       affects: ["files"],

@@ -33,7 +33,12 @@ A named, categorized capability. Catalog data, stored in `data/patterns/{categor
 **Invariants** (enforced by a CI catalog validator, not at runtime):
 
 - `name` is unique across all shards.
-- `supportsSplit: false` forbids `emitScope` values other than `full` for that pattern.
+- `supportsSplit: false` forbids `emitScope` values other than `full` for that pattern, and forbids
+  `coreModule` outright.
+- `supportsSplit: true` requires `emitScope`, since a pattern that can split must say so in its options.
+- Every generative pattern declares `includeTests`.
+- No pattern declares `verbosity`; it governs the response, not the code.
+- A declared base option uses the documented value space exactly, so a caller learns each one once.
 - `kind: "advisory"` implies `options` is empty and `advisory` is present.
 - Every `relatedPatterns` entry resolves; the relation graph has no self-edges.
 
@@ -54,17 +59,37 @@ One knob. Defined per pattern, plus a shared base set every pattern inherits.
 
 ### Shared base options
 
-Present on every generative pattern, so callers learn them once:
+What "shared" fixes is the *vocabulary*, not the presence. A caller learns each of these once and can
+rely on its name, its value space, and its meaning being identical wherever it appears — but a pattern
+declares only the ones it can honour, because an option that resolves to the same output for every
+value advertises a choice that does not exist (FR-019), and one that contradicts the pattern's purpose
+is worse than absent.
 
-| Option | Values | Default |
-|---|---|---|
-| `emitScope` | `full`, `core-only`, `binding-only` | `full` |
-| `coreModule` | string specifier | none — required when `emitScope` is `binding-only` (FR-018) |
-| `errorMode` | `result`, `throw` | `result` |
-| `async` | `sync`, `async`, `both` | `async` for async-resilience patterns, `sync` elsewhere |
-| `cancellation` | `none`, `abort-signal` | `abort-signal` when `async` is not `sync` |
-| `includeTests` | boolean | `true` |
-| `verbosity` | `full`, `code-only`, `summary` | `full` (FR-028) |
+This was originally specified as "present on every generative pattern". Authoring the second pattern
+showed that three of the seven cannot be, and the invariants below are the corrected form.
+
+| Option | Values | Default | Declared when |
+|---|---|---|---|
+| `includeTests` | boolean | `true` | Always. Every pattern can emit a suite or not. |
+| `emitScope` | `full`, `core-only`, `binding-only` | `full` | `supportsSplit` only. Without a split every value emits the same bundle. |
+| `coreModule` | string specifier | none — required when `emitScope` is `binding-only` (FR-018) | `supportsSplit` only, for the same reason. |
+| `errorMode` | `result`, `throw` | pattern's choice | Where both arms are coherent. `throw` negates the `result` pattern, and `result` needs a Result type in scope, which is cross-pattern composition (unspecified). |
+| `async` | `sync`, `async`, `both` | pattern's choice | Where the pattern has a meaningful synchronous form. |
+| `cancellation` | `none`, `abort-signal` | `abort-signal` where the pattern is asynchronous | Where the pattern waits or is long-running. |
+| `verbosity` | `full`, `code-only`, `summary` | `full` (FR-028) | **Never.** See below. |
+
+`verbosity` is a property of the *response*, not of the code: it selects how much of an unchanged
+bundle is rendered back (FR-028). Declaring it as a pattern option would put it in `resolvedOptions`
+and therefore in the provenance hash, so the byte-identical bundle would carry a different hash
+depending only on how verbosely it had been described — which breaks the property the hash exists to
+provide (Principle I). It is an input to the tool, handled at the MCP layer, and the catalog validator
+rejects any entry that declares it.
+
+Defaults are the pattern's to choose where the table says so, because the right default follows from
+what the pattern is: `cancellation` defaults to `abort-signal` on an async pattern and would be
+meaningless on a synchronous one. The *value space* is never the pattern's to choose — a pattern that
+declared `cancellation` with a third value would break the "learn it once" guarantee, and validation
+refuses it.
 
 ---
 

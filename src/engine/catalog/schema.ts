@@ -158,6 +158,46 @@ const commonPatternFields = {
 };
 
 /**
+ * The value space each shared base option must use wherever it appears
+ * (data-model.md §"Shared base options"). Sorted, because the comparison is on
+ * the set rather than on the order a shard happened to list them in.
+ *
+ * Presence is a pattern's decision and the space is not: a pattern declares
+ * only the base options it can honour, but one that offered
+ * `cancellation: "polling"` would cost callers the "learn it once" guarantee
+ * everywhere, not just in that pattern.
+ */
+const BASE_OPTION_VALUES: Readonly<Record<string, readonly string[]>> = {
+  async: ["async", "both", "sync"],
+  cancellation: ["abort-signal", "none"],
+  emitScope: ["binding-only", "core-only", "full"],
+  errorMode: ["result", "throw"],
+};
+
+function declares(options: readonly Option[], name: string): boolean {
+  return options.some((option) => option.name === name);
+}
+
+/**
+ * The first declared base option whose value space departs from the documented
+ * one, or `undefined` when they all agree. A non-enum declaration counts as a
+ * departure: these are closed vocabularies, and a `string` version of one is
+ * not the same option.
+ */
+function offSpaceBaseOption(options: readonly Option[]): string | undefined {
+  for (const option of options) {
+    const expected = BASE_OPTION_VALUES[option.name];
+    if (expected === undefined) continue;
+    if (option.type !== "enum") return option.name;
+
+    const actual = option.values.toSorted();
+    if (actual.length !== expected.length) return option.name;
+    if (actual.some((value, index) => value !== expected[index])) return option.name;
+  }
+  return undefined;
+}
+
+/**
  * Patterns are a union discriminated on `kind`, which makes the advisory
  * invariants structural: an advisory entry cannot carry options, and a
  * generative entry cannot carry advisory content. The alternative — a flat
@@ -200,7 +240,56 @@ export const PatternSchema = z.discriminatedUnion("kind", [
           "every value would emit the same bundle",
         path: ["options"],
       },
-    ),
+    )
+    /**
+     * The other direction: a pattern that *can* split has to say so in its options, or the capability
+     * is unreachable — `supportsSplit` alone is not something a caller can act on.
+     */
+    .refine((p) => !p.supportsSplit || declares(p.options, "emitScope"), {
+      message: "a pattern with supportsSplit true must declare an emitScope option",
+      path: ["options"],
+    })
+    /**
+     * `coreModule` names the module holding machinery the caller already has, which only means
+     * something when the pattern separates machinery from bindings in the first place (FR-018).
+     */
+    .refine((p) => p.supportsSplit || !declares(p.options, "coreModule"), {
+      message:
+        "coreModule is only meaningful for a pattern that splits; " +
+        "a pattern with supportsSplit false must not declare it",
+      path: ["options"],
+    })
+    /**
+     * Every pattern can choose to emit a suite or not, and this is the one base option with no
+     * pattern-specific caveat, so its absence is always an oversight rather than a decision.
+     */
+    .refine((p) => declares(p.options, "includeTests"), {
+      message: "every generative pattern must declare includeTests",
+      path: ["options"],
+    })
+    /**
+     * `verbosity` selects how much of an unchanged bundle is rendered back (FR-028), so it belongs to
+     * the response and not to the code. As a pattern option it would enter the resolved set and
+     * therefore the provenance hash, and the byte-identical bundle would hash differently according
+     * only to how verbosely it had been described — destroying the property the hash exists for.
+     */
+    .refine((p) => !declares(p.options, "verbosity"), {
+      message:
+        "verbosity governs the response, not the generated code, and must not be a pattern option; " +
+        "declaring it would put it in the provenance hash",
+      path: ["options"],
+    })
+    /**
+     * A base option's *value space* is fixed even though its presence is not. "Learn it once" is the
+     * entire benefit of a shared vocabulary, and a pattern offering `cancellation: "polling"` would
+     * cost a caller that guarantee everywhere.
+     */
+    .refine((p) => offSpaceBaseOption(p.options) === undefined, {
+      message:
+        "a declared base option must use its documented value space exactly, " +
+        "so that callers learn each one once",
+      path: ["options"],
+    }),
   z
     .strictObject({
       ...commonPatternFields,
