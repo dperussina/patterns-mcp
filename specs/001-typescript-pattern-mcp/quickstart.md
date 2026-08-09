@@ -26,9 +26,19 @@ The one command that must pass before anything is considered done:
 pnpm check
 ```
 
-This runs, in order: lint including the engine/MCP boundary rule, typecheck, unit tests, contract
-tests, golden snapshots, the determinism and diff-stability harnesses, catalog validation, surface
-parity, and the MCP conformance suite. Any failure is a stop.
+Any failure is a stop.
+
+The gate grows as implementation proceeds: a stage is wired in by the task that creates the thing it
+checks, never in advance, because a gate that is red for structural reasons cannot enforce anything.
+
+| Stage | Covers | Added by |
+|---|---|---|
+| `lint` | The engine/MCP import boundary (Principle X) and the determinism bans | T003, extended by T024 |
+| `typecheck` | Our own sources under `strict` | scaffold |
+| `test` | Five projects: unit, contract, golden, determinism, parity | T005 |
+| `build` | Declaration emit, which can fail where `tsc --noEmit` passes | scaffold |
+| catalog validation | Schema conformance, provenance, licence terms | T011 |
+| conformance | The frozen `2026-07-28` requirement set, both transports | T083 |
 
 ---
 

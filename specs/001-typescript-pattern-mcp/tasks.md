@@ -42,7 +42,7 @@ Single published package with three entry points, per plan.md: `src/engine/` (pu
 - [X] T003 [P] Create oxlint config `.oxlintrc.json` including the import-boundary rule that forbids any module under `src/engine/` or `src/index.ts` from importing MCP packages (Principle X), and add a `lint` script. Not ESLint — `typescript-eslint` caps at `typescript <6.1.0` against our pinned 7.0.2, per research.md §12
 - [X] T004 [P] Create the source tree skeleton per plan.md: `src/engine/{catalog,patterns,options,render,format,verify,provenance}/`, `src/mcp/{tools,resources,transports}/`, `src/cli/`, `data/patterns/`
 - [X] T005 [P] Configure Vitest projects for `unit`, `contract`, `golden`, `determinism`, and `parity` suites in `vitest.config.ts`, with matching directories under `test/`
-- [ ] T006 Add a composite `check` script to `package.json` chaining lint, typecheck, all five test projects, catalog validation, and conformance — this is the single gate referenced by quickstart.md
+- [X] T006 Add a composite `check` script to `package.json` chaining the stages that exist now — lint, typecheck, all five test projects, and build. Build is included because declaration emit can fail where `tsc --noEmit` passes, which is how the earlier tsup incompatibility surfaced. Catalog validation and conformance join in T011 and T083 respectively: a stage is wired into the gate by the task that creates the thing it checks, never before, or the gate is red from here to T083 and every rule that depends on it is unenforceable. This is the single gate referenced by quickstart.md
 
 ---
 
