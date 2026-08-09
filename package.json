@@ -37,7 +37,8 @@
     "typecheck": "tsc --noEmit",
     "schema:emit": "tsx scripts/emit-catalog-schema.ts",
     "schema:check": "tsx scripts/emit-catalog-schema.ts --check",
-    "check": "pnpm lint && pnpm typecheck && pnpm schema:check && pnpm test && pnpm build",
+    "catalog:check": "tsx scripts/validate-catalog.ts",
+    "check": "pnpm lint && pnpm typecheck && pnpm schema:check && pnpm catalog:check && pnpm test && pnpm build",
     "prepublishOnly": "pnpm run build"
   },
   "keywords": [],

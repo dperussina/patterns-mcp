@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import {
   CatalogError,
   buildCatalog,
+  checkShardCategoryNaming,
   loadCatalog,
   type ShardSource,
 } from "../../src/engine/catalog/load.js";
@@ -40,15 +41,29 @@ describe("buildCatalog", () => {
       shard("type-safety.json", [pattern("mango")]),
     ]);
 
-    expect(catalog.patterns.map((p) => p.name)).toEqual(["adapter", "mango", "zebra"]);
+    expect(catalog.patterns.map((p) => p.name)).toEqual([
+      "adapter",
+      "mango",
+      "zebra",
+    ]);
   });
 
   it("orders hyphens and digits by code unit, pinning the one ordering callers see", () => {
     const catalog = buildCatalog([
-      shard("a.json", [pattern("zip2"), pattern("zipcode"), pattern("zip-code"), pattern("zip")]),
+      shard("a.json", [
+        pattern("zip2"),
+        pattern("zipcode"),
+        pattern("zip-code"),
+        pattern("zip"),
+      ]),
     ]);
     // "-" (U+002D) precedes digits, which precede letters.
-    expect(catalog.patterns.map((p) => p.name)).toEqual(["zip", "zip-code", "zip2", "zipcode"]);
+    expect(catalog.patterns.map((p) => p.name)).toEqual([
+      "zip",
+      "zip-code",
+      "zip2",
+      "zipcode",
+    ]);
   });
 
   it("resolves patterns by name", () => {
@@ -82,14 +97,18 @@ describe("buildCatalog", () => {
 
   it("rejects a duplicate name within a single shard", () => {
     expect(() =>
-      buildCatalog([shard("a.json", [pattern("result-type"), pattern("result-type")])]),
+      buildCatalog([
+        shard("a.json", [pattern("result-type"), pattern("result-type")]),
+      ]),
     ).toThrow(CatalogError);
   });
 
   it("rejects a relation that resolves to nothing", () => {
     let error: unknown;
     try {
-      buildCatalog([shard("a.json", [pattern("result-type", ["absent-pattern"])])]);
+      buildCatalog([
+        shard("a.json", [pattern("result-type", ["absent-pattern"])]),
+      ]);
     } catch (caught) {
       error = caught;
     }
@@ -112,7 +131,10 @@ describe("buildCatalog", () => {
     let error: unknown;
     try {
       buildCatalog([
-        shard("a.json", [pattern("one", ["missing-a"]), pattern("two", ["missing-b"])]),
+        shard("a.json", [
+          pattern("one", ["missing-a"]),
+          pattern("two", ["missing-b"]),
+        ]),
       ]);
     } catch (caught) {
       error = caught;
@@ -125,7 +147,10 @@ describe("buildCatalog", () => {
     const build = (): readonly string[] => {
       try {
         buildCatalog([
-          shard("a.json", [pattern("two", ["missing-b"]), pattern("one", ["missing-a"])]),
+          shard("a.json", [
+            pattern("two", ["missing-b"]),
+            pattern("one", ["missing-a"]),
+          ]),
         ]);
       } catch (caught) {
         return (caught as CatalogError).problems;
@@ -140,7 +165,9 @@ describe("buildCatalog", () => {
   it("attributes a schema failure to the shard it came from", () => {
     let error: unknown;
     try {
-      buildCatalog([shard("broken.json", [{ ...(pattern("ok") as object), tier: 9 }])]);
+      buildCatalog([
+        shard("broken.json", [{ ...(pattern("ok") as object), tier: 9 }]),
+      ]);
     } catch (caught) {
       error = caught;
     }
@@ -170,26 +197,83 @@ describe("buildCatalog", () => {
 
 async function directoryWith(files: Record<string, string>): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), "patterns-catalog-"));
-  for (const [name, contents] of Object.entries(files).toSorted(([a], [b]) => (a < b ? -1 : 1))) {
+  for (const [name, contents] of Object.entries(files).toSorted(([a], [b]) =>
+    a < b ? -1 : 1,
+  )) {
     await writeFile(join(dir, name), contents, "utf8");
   }
   return dir;
 }
 
+describe("checkShardCategoryNaming", () => {
+  it("accepts entries filed under the shard named for their category", () => {
+    expect(
+      checkShardCategoryNaming([
+        shard("type-safety.json", [pattern("result-type")]),
+      ]),
+    ).toEqual([]);
+  });
+
+  it("rejects an entry whose declared category disagrees with its file", () => {
+    const problems = checkShardCategoryNaming([
+      shard("structural.json", [pattern("result-type")]),
+    ]);
+    expect(problems).toEqual([
+      'structural.json: pattern "result-type" declares category "type-safety" ' +
+        'but is filed under "structural"',
+    ]);
+  });
+
+  it("rejects a shard whose file name is not a known category", () => {
+    const problems = checkShardCategoryNaming([
+      shard("misc.json", [pattern("result-type")]),
+    ]);
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toContain("not a known category");
+  });
+
+  it("leaves schema-invalid shards to buildCatalog rather than reporting them twice", () => {
+    expect(
+      checkShardCategoryNaming([
+        shard("type-safety.json", [{ nonsense: true }]),
+      ]),
+    ).toEqual([]);
+  });
+
+  it("accepts a shard that references the published schema", () => {
+    const withRef: ShardSource = {
+      source: "type-safety.json",
+      contents: {
+        $schema: "../schema.json",
+        patterns: [pattern("result-type")],
+      },
+    };
+    expect(checkShardCategoryNaming([withRef])).toEqual([]);
+    expect(buildCatalog([withRef]).patterns).toHaveLength(1);
+  });
+});
+
 describe("loadCatalog", () => {
   it("reads and merges every shard in a directory", async () => {
     const dir = await directoryWith({
       "structural.json": JSON.stringify({ patterns: [pattern("adapter")] }),
-      "type-safety.json": JSON.stringify({ patterns: [pattern("result-type")] }),
+      "type-safety.json": JSON.stringify({
+        patterns: [pattern("result-type")],
+      }),
     });
 
     const catalog = await loadCatalog(dir);
-    expect(catalog.patterns.map((p) => p.name)).toEqual(["adapter", "result-type"]);
+    expect(catalog.patterns.map((p) => p.name)).toEqual([
+      "adapter",
+      "result-type",
+    ]);
   });
 
   it("ignores non-JSON files, so notes and fixtures can live beside shards", async () => {
     const dir = await directoryWith({
-      "type-safety.json": JSON.stringify({ patterns: [pattern("result-type")] }),
+      "type-safety.json": JSON.stringify({
+        patterns: [pattern("result-type")],
+      }),
       "README.md": "# notes",
     });
 
@@ -200,7 +284,9 @@ describe("loadCatalog", () => {
   it("attributes malformed JSON to its file", async () => {
     const dir = await directoryWith({ "broken.json": "{ not json" });
 
-    await expect(loadCatalog(dir)).rejects.toThrow(/broken\.json: not valid JSON/);
+    await expect(loadCatalog(dir)).rejects.toThrow(
+      /broken\.json: not valid JSON/,
+    );
   });
 
   it("returns an empty catalog for a directory with no shards yet", async () => {
@@ -212,7 +298,10 @@ describe("loadCatalog", () => {
     const duplicate = JSON.stringify({ patterns: [pattern("result-type")] });
     // Written in reverse order on purpose: if readdir order leaked through, the
     // attribution below would flip depending on the filesystem.
-    const dir = await directoryWith({ "z-late.json": duplicate, "a-early.json": duplicate });
+    const dir = await directoryWith({
+      "z-late.json": duplicate,
+      "a-early.json": duplicate,
+    });
 
     await expect(loadCatalog(dir)).rejects.toThrow(
       /duplicate pattern name "result-type" in z-late\.json; already defined in a-early\.json/,

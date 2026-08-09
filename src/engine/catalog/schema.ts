@@ -104,8 +104,16 @@ export const OptionSchema = z.discriminatedUnion("type", [
  * applied to them before they call (FR-013).
  */
 export const WhenClauseSchema = z.discriminatedUnion("operator", [
-  z.strictObject({ operator: z.literal("eq"), option: optionName, value: scalar }),
-  z.strictObject({ operator: z.literal("neq"), option: optionName, value: scalar }),
+  z.strictObject({
+    operator: z.literal("eq"),
+    option: optionName,
+    value: scalar,
+  }),
+  z.strictObject({
+    operator: z.literal("neq"),
+    option: optionName,
+    value: scalar,
+  }),
   z.strictObject({
     operator: z.literal("in"),
     option: optionName,
@@ -184,6 +192,12 @@ export const PatternSchema = z.discriminatedUnion("kind", [
 
 /** One catalogue shard, as stored in `data/patterns/{category}.json`. */
 export const CatalogShardSchema = z.strictObject({
+  /**
+   * Permitted so a hand-authored shard can point at `data/schema.json` and get
+   * editor completion. Without this allowance the strict object rejects the very
+   * reference that makes the published schema usable. Not otherwise interpreted.
+   */
+  $schema: z.string().optional(),
   patterns: z.array(PatternSchema),
 });
 

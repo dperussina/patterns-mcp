@@ -38,7 +38,7 @@ checks, never in advance, because a gate that is red for structural reasons cann
 | `schema:check` | That `data/schema.json` still matches the Zod schema it is derived from | T009 |
 | `test` | Five projects: unit, contract, golden, determinism, parity | T005 |
 | `build` | Declaration emit, which can fail where `tsc --noEmit` passes | scaffold |
-| catalog validation | Schema conformance, provenance, licence terms | T011 |
+| `catalog:check` | Schema conformance, provenance, licence terms, and the `{category}.json` file-name convention | T011 |
 | conformance | The frozen `2026-07-28` requirement set, both transports | T083 |
 
 ---
