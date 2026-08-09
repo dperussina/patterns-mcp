@@ -118,6 +118,25 @@ export async function loadCatalog(directory?: string): Promise<Catalog> {
   return buildCatalog(await readShards(directory));
 }
 
+let loading: Promise<Catalog> | undefined;
+
+/**
+ * The shipped catalogue, read once per process.
+ *
+ * A cache of immutable build-time data, not state: the shards ship with the package, so a second read
+ * cannot see anything different, and nothing a request does can alter what is cached. That is also why
+ * the discovery tools may advertise their results as cacheable for the package version's lifetime
+ * (FR-014) — the same fact licenses both.
+ *
+ * Shared rather than kept per caller. Generation, `list_patterns`, `describe_pattern`, and the catalog
+ * resources must agree about what the catalogue contains, and two caches of one file are two chances to
+ * disagree.
+ */
+export function catalogOnce(): Promise<Catalog> {
+  loading ??= loadCatalog();
+  return loading;
+}
+
 /**
  * Reads shards without merging them, for callers that need the per-shard view —
  * the catalogue validator checks each file name against the categories its own

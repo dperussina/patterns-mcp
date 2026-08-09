@@ -11,7 +11,7 @@
  * table, both of which happen once and are cached for the process (Principle I).
  */
 
-import { loadCatalog } from "../catalog/load.js";
+import { catalogOnce } from "../catalog/load.js";
 import type { Catalog } from "../catalog/load.js";
 import { nearestNames } from "../catalog/nearest.js";
 import type { GenerativePattern } from "../catalog/schema.js";
@@ -252,7 +252,6 @@ function hashOf(resolved: ResolvedRequest): string {
   return `${resolved.pattern}:${String(Object.keys(resolved.options).length)}`;
 }
 
-let catalogPromise: Promise<Catalog> | undefined;
 let namePromise: Promise<NameTable> | undefined;
 let verifier: Verifier | undefined;
 
@@ -262,12 +261,10 @@ let verifier: Verifier | undefined;
  * serialises overlapping checks internally, and every check supplies a complete file set and
  * complete compiler options. Reuse therefore carries nothing between requests, concurrent or not
  * (contracts/engine-api.md §5).
+ *
+ * The catalog's cache lives in `catalog/load.ts` rather than here, because discovery reads it too and
+ * two caches of one file are two chances to disagree about what the catalogue contains.
  */
-function catalogOnce(): Promise<Catalog> {
-  catalogPromise ??= loadCatalog();
-  return catalogPromise;
-}
-
 function nameTableOnce(): Promise<NameTable> {
   namePromise ??= loadNameTable();
   return namePromise;

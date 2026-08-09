@@ -56,6 +56,24 @@ const scalar = z.union([z.string(), z.number(), z.boolean()]);
 export const CategorySchema = z.enum(CATEGORIES);
 
 /**
+ * The kinds and tiers a caller can filter on.
+ *
+ * Declared once, as schemas, and reused by both the catalogue entries and the discovery tools. A tool
+ * that spelled its filter's value space out again would be a second definition free to drift, and the
+ * drift shows up as a filter accepting a value the catalogue can never hold — a request that is valid,
+ * answerable, and always empty.
+ */
+export const PATTERN_KINDS = ["generative", "advisory"] as const;
+export const TIERS = [1, 2, 3] as const;
+
+export const PatternKindSchema = z.enum(PATTERN_KINDS);
+export const TierSchema = z.union([
+  z.literal(TIERS[0]),
+  z.literal(TIERS[1]),
+  z.literal(TIERS[2]),
+]);
+
+/**
  * Options are a union discriminated on `type` rather than a flat record with a
  * refinement. This makes two of the table's rules structural instead of
  * conditional: `values` can only exist on an enum option, and `default` is
@@ -154,7 +172,7 @@ const commonPatternFields = {
   relatedPatterns: z.array(patternName),
   provenance: z.string().min(1),
   license: z.enum(ALLOWED_LICENSES),
-  tier: z.union([z.literal(1), z.literal(2), z.literal(3)]),
+  tier: TierSchema,
 };
 
 /**
@@ -315,6 +333,8 @@ export const CatalogShardSchema = z.strictObject({
 
 export type Category = z.infer<typeof CategorySchema>;
 export type Option = z.infer<typeof OptionSchema>;
+export type PatternKind = z.infer<typeof PatternKindSchema>;
+export type Tier = z.infer<typeof TierSchema>;
 export type WhenClause = z.infer<typeof WhenClauseSchema>;
 export type LegalityRule = z.infer<typeof LegalityRuleSchema>;
 export type AdvisoryContent = z.infer<typeof AdvisoryContentSchema>;

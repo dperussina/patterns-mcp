@@ -124,6 +124,24 @@ function record(error: EngineError, log: Logger): void {
   if (!error.correctable) log(`${error.code}: ${error.message}`);
 }
 
+/**
+ * The caller-facing text for an error, without the tool-result envelope.
+ *
+ * Resources fail with protocol errors rather than results — there is no `isError` on a
+ * `resources/read` — so the resource handlers need the message without the wrapper. Sharing this is
+ * what keeps FR-035 from being a property of the tool path alone: the sanitising happens here, and a
+ * new surface gets it by using this rather than by remembering to.
+ */
+export function safeMessage(error: unknown, log: Logger = stderrLog): string {
+  if (error instanceof EngineError) {
+    record(error, log);
+    return messageFor(error);
+  }
+
+  log(`internal_error: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`);
+  return "The server failed to handle this request. This is a defect, not a problem with your input.";
+}
+
 export function toErrorResult(error: unknown, log: Logger = stderrLog): CallToolResult {
   if (error instanceof EngineError) {
     record(error, log);
