@@ -16,12 +16,18 @@ export const ConventionsSchema = z
     moduleStyle: z.enum(["esm", "cjs"]).default("esm"),
     importExtensions: z.enum(["none", "js", "ts"]).default("js"),
     typeImports: z.enum(["inline", "separate"]).default("separate"),
-    testFramework: z.enum(["vitest", "node-test", "jest", "none"]).default("vitest"),
+    testFramework: z
+      .enum(["vitest", "node-test", "jest", "none"])
+      .default("vitest"),
     runtime: z.enum(["node", "browser", "neutral"]).default("neutral"),
     /**
-     * Passed through to Prettier rather than interpreted here. Left as an open
-     * record because Prettier owns the validation of its own options, and
-     * duplicating that surface would drift from whichever version is pinned.
+     * Style options for Prettier. An open record here, but *not* passed through
+     * unfiltered: `format/prettier.ts` validates it against an allowlist.
+     *
+     * A `plugins` entry in a Prettier options object is `import()`ed, so an
+     * unfiltered pass-through would make this field an arbitrary-module-loading
+     * surface rather than a style setting. Verified against the pinned version,
+     * not assumed.
      */
     prettierConfig: z.record(z.string(), z.unknown()).default({}),
   })
@@ -33,4 +39,5 @@ export const ConventionsSchema = z
 export type Conventions = z.infer<typeof ConventionsSchema>;
 
 /** The fully resolved defaults, for reporting and for tests to assert against. */
-export const DEFAULT_CONVENTIONS: Conventions = ConventionsSchema.parse(undefined);
+export const DEFAULT_CONVENTIONS: Conventions =
+  ConventionsSchema.parse(undefined);
