@@ -35,7 +35,9 @@
     "lint": "oxlint",
     "lint:fix": "oxlint --fix",
     "typecheck": "tsc --noEmit",
-    "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm build",
+    "schema:emit": "tsx scripts/emit-catalog-schema.ts",
+    "schema:check": "tsx scripts/emit-catalog-schema.ts --check",
+    "check": "pnpm lint && pnpm typecheck && pnpm schema:check && pnpm test && pnpm build",
     "prepublishOnly": "pnpm run build"
   },
   "keywords": [],
@@ -45,6 +47,7 @@
     "oxlint": "1.77.0",
     "prettier": "3.9.6",
     "tsdown": "^0.22.14",
+    "tsx": "4.23.11",
     "typescript": "7.0.2",
     "vitest": "^4.1.10"
   },

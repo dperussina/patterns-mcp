@@ -35,6 +35,7 @@ checks, never in advance, because a gate that is red for structural reasons cann
 |---|---|---|
 | `lint` | The engine/MCP import boundary (Principle X) and the determinism bans | T003, extended by T024 |
 | `typecheck` | Our own sources under `strict` | scaffold |
+| `schema:check` | That `data/schema.json` still matches the Zod schema it is derived from | T009 |
 | `test` | Five projects: unit, contract, golden, determinism, parity | T005 |
 | `build` | Declaration emit, which can fail where `tsc --noEmit` passes | scaffold |
 | catalog validation | Schema conformance, provenance, licence terms | T011 |
