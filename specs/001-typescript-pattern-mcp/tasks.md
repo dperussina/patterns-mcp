@@ -37,8 +37,8 @@ Single published package with three entry points, per plan.md: `src/engine/` (pu
 **Purpose**: Get the toolchain, boundaries, and test topology in place. The scaffold from earlier work
 (pnpm, tsdown, vitest, tsconfig) already exists — these tasks extend it rather than recreate it.
 
-- [ ] T001 Add runtime dependencies `@modelcontextprotocol/server@2.0.0` and `zod@4.4.3` to `package.json` — note the SDK is *not* `@modelcontextprotocol/sdk`, which is the older 1.x monolith still tagged `latest`
-- [ ] T002 Pin `typescript@7.0.2` and `prettier@3.9.6` with exact versions (no caret) in `package.json`, and set `engines.node` to `>=20` per the Toolchain Pinning section of the constitution
+- [X] T001 Add runtime dependencies `@modelcontextprotocol/server@2.0.0` and `zod@4.4.3` to `package.json` — note the SDK is *not* `@modelcontextprotocol/sdk`, which is the older 1.x monolith still tagged `latest`
+- [X] T002 Pin `typescript@7.0.2` and `prettier@3.9.6` with exact versions (no caret) in `package.json`, and set `engines.node` to `>=20` per the Toolchain Pinning section of the constitution
 - [ ] T003 [P] Create ESLint flat config `eslint.config.mjs` including the import-boundary rule that forbids any module under `src/engine/` or `src/index.ts` from importing MCP packages (Principle X)
 - [ ] T004 [P] Create the source tree skeleton per plan.md: `src/engine/{catalog,patterns,options,render,format,verify,provenance}/`, `src/mcp/{tools,resources,transports}/`, `src/cli/`, `data/patterns/`
 - [ ] T005 [P] Configure Vitest projects for `unit`, `contract`, `golden`, `determinism`, and `parity` suites in `vitest.config.ts`, with matching directories under `test/`
