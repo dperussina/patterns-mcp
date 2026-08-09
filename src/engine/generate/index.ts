@@ -13,6 +13,7 @@
 
 import { loadCatalog } from "../catalog/load.js";
 import type { Catalog } from "../catalog/load.js";
+import { nearestNames } from "../catalog/nearest.js";
 import type { GenerativePattern } from "../catalog/schema.js";
 import { UnknownPatternError, InvalidOptionValueError, VerificationError } from "../errors.js";
 import { formatSource, formatterVersion } from "../format/prettier.js";
@@ -222,14 +223,9 @@ function generativeEntry(catalog: Catalog, name: string): GenerativePattern {
   return entry;
 }
 
-/** Names sharing a prefix or substring with the request, so a typo costs one retry (SC-007). */
+/** Names closest to the request, so a typo costs one retry rather than a round trip (SC-007). */
 function nearest(catalog: Catalog, name: string): readonly string[] {
-  const lower = name.toLowerCase();
-  return catalog.patterns
-    .map((entry) => entry.name)
-    .filter((candidate) => candidate.includes(lower) || lower.includes(candidate))
-    .toSorted()
-    .slice(0, 5);
+  return nearestNames(catalog.patterns, name);
 }
 
 function moduleFor(name: string): PatternModule {

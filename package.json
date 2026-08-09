@@ -45,6 +45,7 @@
   "keywords": [],
   "packageManager": "pnpm@10.33.0",
   "devDependencies": {
+    "@modelcontextprotocol/client": "2.0.0",
     "@types/node": "^26.2.0",
     "@vitest/coverage-v8": "^4.1.10",
     "oxlint": "1.77.0",
