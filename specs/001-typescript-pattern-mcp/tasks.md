@@ -39,9 +39,9 @@ Single published package with three entry points, per plan.md: `src/engine/` (pu
 
 - [X] T001 Add runtime dependencies `@modelcontextprotocol/server@2.0.0` and `zod@4.4.3` to `package.json` — note the SDK is *not* `@modelcontextprotocol/sdk`, which is the older 1.x monolith still tagged `latest`
 - [X] T002 Pin `typescript@7.0.2` and `prettier@3.9.6` with exact versions (no caret) in `package.json`, and set `engines.node` to `>=20` per the Toolchain Pinning section of the constitution
-- [ ] T003 [P] Create oxlint config `.oxlintrc.json` including the import-boundary rule that forbids any module under `src/engine/` or `src/index.ts` from importing MCP packages (Principle X), and add a `lint` script. Not ESLint — `typescript-eslint` caps at `typescript <6.1.0` against our pinned 7.0.2, per research.md §12
-- [ ] T004 [P] Create the source tree skeleton per plan.md: `src/engine/{catalog,patterns,options,render,format,verify,provenance}/`, `src/mcp/{tools,resources,transports}/`, `src/cli/`, `data/patterns/`
-- [ ] T005 [P] Configure Vitest projects for `unit`, `contract`, `golden`, `determinism`, and `parity` suites in `vitest.config.ts`, with matching directories under `test/`
+- [X] T003 [P] Create oxlint config `.oxlintrc.json` including the import-boundary rule that forbids any module under `src/engine/` or `src/index.ts` from importing MCP packages (Principle X), and add a `lint` script. Not ESLint — `typescript-eslint` caps at `typescript <6.1.0` against our pinned 7.0.2, per research.md §12
+- [X] T004 [P] Create the source tree skeleton per plan.md: `src/engine/{catalog,patterns,options,render,format,verify,provenance}/`, `src/mcp/{tools,resources,transports}/`, `src/cli/`, `data/patterns/`
+- [X] T005 [P] Configure Vitest projects for `unit`, `contract`, `golden`, `determinism`, and `parity` suites in `vitest.config.ts`, with matching directories under `test/`
 - [ ] T006 Add a composite `check` script to `package.json` chaining lint, typecheck, all five test projects, catalog validation, and conformance — this is the single gate referenced by quickstart.md
 
 ---
@@ -270,6 +270,7 @@ byte-identical results.
 - [ ] T095 Warm the compiler and formatter at startup and add a latency benchmark in `test/bench/` confirming verification is never the dominant request cost (SC-009)
 - [ ] T096 Security review against FR-032 – FR-035: no `eval` or dynamic function construction, no network calls or credentials or install hooks in generated code, all paths derived from validated inputs, all caller values escaped in messages
 - [ ] T097 [P] Add `LICENSE` and confirm every catalog entry's `license` field permits commercial modification (SC-012)
+- [ ] T111 Remove `passWithNoTests` from `vitest.config.ts` once every suite has tests, so a suite that silently loses all of its tests fails the gate instead of passing it
 - [ ] T098 Run all twelve quickstart.md scenarios end to end and record the results
 
 ---

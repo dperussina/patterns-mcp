@@ -1,0 +1,26 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "categories": {
+    "correctness": "error",
+    "suspicious": "error"
+  },
+  "ignorePatterns": ["dist/**", "coverage/**"],
+  "overrides": [
+    {
+      "files": ["src/engine/**/*.ts", "src/index.ts"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["@modelcontextprotocol/*"],
+                "message": "The generation engine must not depend on MCP. Adapters live in src/mcp."
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}
