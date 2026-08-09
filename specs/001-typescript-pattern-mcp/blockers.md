@@ -86,7 +86,72 @@ actually pays.
 At ~13ms, verification leaves ample room. The sub-budget is what is wrong, not the architecture.
 
 **Recommendation**: amend plan.md's verification budget to 15ms warm and keep the 50ms end-to-end goal,
-or accept the discrepancy explicitly. Do not chase 5ms by weakening verification.
+or accept the discrepancy explicitly. Do not chase 5ms by weakening verification. See the T022 entry
+below, which makes the end-to-end number the more pressing of the two.
 
 **Where it bites if unresolved**: T093 (performance validation) will measure against whichever number
 plan.md states.
+
+---
+
+## T022 — executing tests costs ~60ms, so p95 under 50ms is unreachable for any bundle with tests
+
+**Status**: T022 shipped and works. This is a conflict between two things plan.md asks for, and it
+needs a decision rather than a code change.
+
+**The conflict**: Principle III requires that a bundle containing tests has those tests executed
+before it is returned, and `VerificationRecord.testOutcome` permits `skipped` *only* when the bundle
+contains no tests. plan.md also sets "end-to-end generation p95 under 50ms excluding transport". A
+sandboxed Node process costs 60–70ms to start and run a trivial test, measured five times with little
+variance. Add ~13ms of typechecking and a request that includes tests cannot come in under ~75ms. The
+floor is process startup, so no amount of tuning our code reaches 50ms.
+
+**Options, in the order I would consider them**:
+
+1. **Amend the budget** to something like "p95 under 100ms for bundles with tests, under 30ms
+   without". Honest, costs nothing, and keeps Principle III intact.
+2. **Cache verification by `contentHash`**. Identical bytes have already been proven to pass, and
+   generation is deterministic, so a repeat request need not re-run anything. Turns the common case
+   into a lookup and leaves the first request paying full price. Note this trades against the "no
+   state between requests" constraint, though a pure function of content is a weak form of state.
+3. **Execute tests only when asked**, with a `verifyTests` option defaulting to on. Fastest to
+   implement and the worst of the three: it makes the guarantee conditional, and a caller optimising
+   for latency would switch off the thing that makes the output trustworthy.
+
+**Recommendation**: option 1 now, option 2 if measurement later shows it matters. Not option 3.
+
+**Where it bites if unresolved**: T093 (performance validation) and T085 (token/latency budgets).
+
+---
+
+## T022 — which test framework can actually be executed (open question)
+
+**Status**: T022 shipped against `node:test`. Nothing generates tests yet, so nothing is broken; this
+needs settling before the generator emits its first test file.
+
+**The problem**: `conventions.testFramework` offers `vitest` (the default), `node-test`, `jest`, and
+`none`. The executor runs a transpiled bundle under Node's built-in runner, which resolves `node:test`
+and `node:assert` because they ship with Node. A generated test that imports `vitest` cannot resolve
+it inside the sandbox — vitest is not there, and putting it there would mean granting reads outside
+the bundle and shipping vitest as a runtime dependency.
+
+**Why it is not simply "generate node:test tests"**: FR-025 and the conventions contract promise output
+that matches the caller's project, and a vitest user asking for a vitest test should not receive a
+`node:test` file.
+
+**Options**:
+
+1. Emit the caller's framework, and for verification only, transpile with a small shim mapping the
+   handful of API calls our templates use (`describe`, `it`/`test`, `expect`) onto `node:test` and
+   `node:assert`. We control the vocabulary because we write the templates, so the shim is bounded and
+   testable. Executed semantics differ slightly from the real framework.
+2. Emit two files: the caller's test, plus an internal `node:test` equivalent that is executed and then
+   discarded. Verifies something adjacent to what ships, which is weaker than it sounds.
+3. Restrict the first release to `node-test` and treat other frameworks as a later feature. Honest but
+   narrows the audience, since vitest is the default for a reason.
+
+**Recommendation**: option 1. The shim is small, and its correctness is testable in its own right —
+which is more than can be said for option 2, where the shipped file is never the file that ran.
+
+**Where it bites if unresolved**: whichever task emits the test file (near T031/T102), and T066, which
+asserts conventions are honoured.
