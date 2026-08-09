@@ -12,9 +12,10 @@
  * therefore never touches the filesystem.
  */
 import { readFile } from "node:fs/promises";
-import { fileURLToPath } from "node:url";
 
 import { z } from "zod";
+
+import { dataPath } from "../data-root.js";
 
 import { checkIdentifier, type IdentifierCheckOptions } from "./identifiers.js";
 
@@ -75,15 +76,12 @@ const AMBIGUOUS_SUFFIXES: readonly {
   },
 ];
 
-const DEFAULT_TABLE_PATH = fileURLToPath(
-  new URL("../../../data/names.json", import.meta.url),
-);
-
 /** Reads the exception table. Call once at startup, not per generation. */
-export async function loadNameTable(
-  path: string = DEFAULT_TABLE_PATH,
-): Promise<NameTable> {
-  return NameTableSchema.parse(JSON.parse(await readFile(path, "utf8")));
+export async function loadNameTable(path?: string): Promise<NameTable> {
+  // Resolved here rather than in a module-level constant: the shipped location is found by walking up
+  // to the package root, and doing that at import time would throw in a loader instead of at a caller.
+  const resolved = path ?? dataPath("names.json");
+  return NameTableSchema.parse(JSON.parse(await readFile(resolved, "utf8")));
 }
 
 /**

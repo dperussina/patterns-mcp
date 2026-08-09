@@ -243,6 +243,10 @@ const NODE_BUILTIN_TYPES: Readonly<Record<string, string>> = {
     strictEqual<T>(actual: unknown, expected: T, message?: string): void;
     deepStrictEqual<T>(actual: unknown, expected: T, message?: string): void;
     notStrictEqual(actual: unknown, expected: unknown, message?: string): void;
+    // In this module \`equal\` *is* \`strictEqual\`; declaring only the latter made an ordinary
+    // \`assert.equal\` fail to compile, which reads as a broken pattern rather than a missing declaration.
+    equal<T>(actual: unknown, expected: T, message?: string): void;
+    notEqual(actual: unknown, expected: unknown, message?: string): void;
     throws(
       block: () => unknown,
       expected?: RegExp | (abstract new (...args: never[]) => Error),

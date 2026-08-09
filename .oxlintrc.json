@@ -4,6 +4,9 @@
     "correctness": "error",
     "suspicious": "error"
   },
+  "rules": {
+    "no-underscore-dangle": ["error", { "allow": ["_meta"] }]
+  },
   "ignorePatterns": ["dist/**", "coverage/**"],
   "overrides": [
     {

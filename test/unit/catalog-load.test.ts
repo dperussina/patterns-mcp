@@ -294,6 +294,21 @@ describe("loadCatalog", () => {
     expect(catalog.patterns).toEqual([]);
   });
 
+  /**
+   * The shipped catalogue, with no directory supplied.
+   *
+   * This is the call every real request makes, and the one that was broken in the published package
+   * while every test here passed: the location was a fixed relative path from this module, correct in
+   * the source tree and three levels too high once bundling flattened it. Asserting the default
+   * resolves — and finds actual patterns — is what makes that a test failure rather than a discovery
+   * made by running the built binary.
+   */
+  it("finds the shipped catalogue when no directory is given", async () => {
+    const catalog = await loadCatalog();
+    expect(catalog.patterns.length).toBeGreaterThan(0);
+    expect(catalog.patterns.map((entry) => entry.name)).toContain("result");
+  });
+
   it("reports duplicates against the alphabetically first shard, not the first one readdir returns", async () => {
     const duplicate = JSON.stringify({ patterns: [pattern("result-type")] });
     // Written in reverse order on purpose: if readdir order leaked through, the

@@ -1,0 +1,145 @@
+/**
+ * Exercises the **built** server the way a host will. Wired into `pnpm check` as `pnpm smoke`.
+ *
+ * Every other stage of the gate runs against `src/`, which is why the gate once passed while the
+ * published package was entirely non-functional: the catalogue and name table were located by a fixed
+ * relative path from their own module, correct in the source tree and three levels too high once the
+ * bundler flattened the directory structure. No unit test could see it. Running the artifact can.
+ *
+ * So this deliberately asserts the boring, end-to-end things a bundling or packaging mistake breaks:
+ * that the binary starts, speaks the protocol, finds its own data, generates a verified bundle, keeps
+ * stdout free of anything that is not a protocol frame, and says nothing on stderr when all is well.
+ *
+ * Launched from a temporary directory, not the repository, so that any path resolved relative to the
+ * current working directory fails here rather than in a user's install.
+ */
+
+import { spawn } from "node:child_process";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import process from "node:process";
+
+const BIN = join(import.meta.dirname, "..", "dist", "mcp", "transports", "stdio-bin.mjs");
+const PROTOCOL_VERSION = "2025-11-25";
+const TIMEOUT_MS = 180_000;
+
+interface Frame {
+  readonly id?: number;
+  readonly result?: Record<string, unknown>;
+  readonly error?: { readonly message?: string };
+}
+
+function fail(message: string): never {
+  process.stderr.write(`smoke: ${message}\n`);
+  process.exit(1);
+}
+
+const requests = [
+  {
+    jsonrpc: "2.0",
+    id: 1,
+    method: "initialize",
+    params: {
+      protocolVersion: PROTOCOL_VERSION,
+      capabilities: {},
+      clientInfo: { name: "smoke", version: "0.0.0" },
+    },
+  },
+  { jsonrpc: "2.0", method: "notifications/initialized" },
+  {
+    jsonrpc: "2.0",
+    id: 2,
+    method: "tools/call",
+    params: {
+      name: "generate_pattern",
+      arguments: { pattern: "result", identifiers: { entity: "Invoice" } },
+    },
+  },
+];
+
+const child = spawn(process.execPath, [BIN], {
+  cwd: tmpdir(),
+  stdio: ["pipe", "pipe", "pipe"],
+});
+
+let stdout = "";
+let stderr = "";
+child.stdout.setEncoding("utf8");
+child.stderr.setEncoding("utf8");
+child.stdout.on("data", (chunk: string) => {
+  stdout += chunk;
+});
+child.stderr.on("data", (chunk: string) => {
+  stderr += chunk;
+});
+
+for (const request of requests) child.stdin.write(`${JSON.stringify(request)}\n`);
+
+const timer = setTimeout(() => {
+  child.kill("SIGKILL");
+  fail(`the built server produced no answer within ${String(TIMEOUT_MS / 1000)}s`);
+}, TIMEOUT_MS);
+
+/** Resolves when the response to the generate call has arrived, or the child dies first. */
+await new Promise<void>((resolve) => {
+  const settled = (): void => {
+    if (stdout.includes('"id":2')) resolve();
+  };
+  child.stdout.on("data", settled);
+  child.on("exit", () => {
+    resolve();
+  });
+});
+
+clearTimeout(timer);
+child.stdin.end();
+child.kill();
+
+const lines = stdout.split("\n").filter((line) => line.trim() !== "");
+if (lines.length === 0) fail(`the built server wrote nothing to stdout. stderr was:\n${stderr}`);
+
+const frames: Frame[] = [];
+for (const line of lines) {
+  try {
+    frames.push(JSON.parse(line) as Frame);
+  } catch {
+    // The whole point of routing diagnostics to stderr. A single stray write lands here.
+    fail(`stdout carried something that is not a protocol frame: ${line.slice(0, 200)}`);
+  }
+}
+
+const handshake = frames.find((frame) => frame.id === 1);
+if (handshake?.result === undefined) {
+  fail(`the handshake failed: ${JSON.stringify(handshake ?? null)}`);
+}
+
+const call = frames.find((frame) => frame.id === 2);
+if (call?.result === undefined) fail(`no answer to the generate call. stderr was:\n${stderr}`);
+
+if (call.result.isError === true) {
+  fail(`generation was refused by the built server. stderr was:\n${stderr}`);
+}
+
+const structured = call.result.structuredContent as
+  | {
+      readonly files?: readonly unknown[];
+      readonly verification?: { readonly diagnosticCount?: number; readonly testOutcome?: string };
+    }
+  | undefined;
+
+if (structured?.verification === undefined) fail("the answer carried no verification evidence");
+if (structured.verification.diagnosticCount !== 0) {
+  fail(`the built server returned a bundle with diagnostics: ${JSON.stringify(structured.verification)}`);
+}
+if (structured.verification.testOutcome !== "passed") {
+  fail(`generated tests did not pass: ${String(structured.verification.testOutcome)}`);
+}
+if ((structured.files?.length ?? 0) === 0) fail("the answer carried no files");
+
+// Nothing is wrong, so nothing should have been reported. A warning here is worth seeing before a user
+// sees it, since stderr is where a host surfaces server trouble.
+if (stderr.trim() !== "") fail(`the built server complained on stderr:\n${stderr}`);
+
+process.stdout.write(
+  `smoke: the built server generated ${String(structured.files?.length ?? 0)} verified files, tests passed\n`,
+);

@@ -22,8 +22,11 @@ import {
   MissingRequiredOptionError,
   UnknownOptionError,
   UnknownPatternError,
+  VerificationError,
   isCorrectable,
 } from "../engine/errors.js";
+import { stderrLog } from "./log.js";
+import type { Logger } from "./log.js";
 
 /**
  * A value safe to quote back: identifier-shaped, punctuation-free, and short.
@@ -102,8 +105,28 @@ function withoutQuotedValues(message: string): string {
   return message.replace(/"[^"]*"/g, "the supplied value");
 }
 
-export function toErrorResult(error: unknown): CallToolResult {
+/**
+ * Records the detail a caller is not shown, against the identifier they are.
+ *
+ * This is the other half of withholding diagnostics. A correlation identifier that leads nowhere is
+ * worse than no identifier at all — it invites a caller to report a defect that the operator then has
+ * no way to look up (FR-038). A correctable refusal is not logged: it is the caller's business, it is
+ * fully described in the message they received, and logging every typo would bury the real failures.
+ */
+function record(error: EngineError, log: Logger): void {
+  if (error instanceof VerificationError) {
+    log(
+      `verification_failed ${error.correlationId} at ${error.stage}: ${error.diagnostics.join(" | ")}`,
+    );
+    return;
+  }
+
+  if (!error.correctable) log(`${error.code}: ${error.message}`);
+}
+
+export function toErrorResult(error: unknown, log: Logger = stderrLog): CallToolResult {
   if (error instanceof EngineError) {
+    record(error, log);
     return {
       isError: true,
       content: [{ type: "text", text: messageFor(error) }],
@@ -113,7 +136,9 @@ export function toErrorResult(error: unknown): CallToolResult {
     };
   }
 
-  // Anything else escaped a boundary that should have classified it. Say so without speculating.
+  // Anything else escaped a boundary that should have classified it. Say so without speculating, and
+  // log the stack — this is the case where we have no idea what happened and will need to find out.
+  log(`internal_error: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`);
   return {
     isError: true,
     content: [

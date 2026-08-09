@@ -1,5 +1,6 @@
 import { readFile, readdir } from "node:fs/promises";
-import { fileURLToPath } from "node:url";
+
+import { dataPath } from "../data-root.js";
 
 import { CATEGORIES, CatalogShardSchema, type Pattern } from "./schema.js";
 
@@ -32,9 +33,10 @@ export class CatalogError extends Error {
   }
 }
 
-const DEFAULT_DIRECTORY = fileURLToPath(
-  new URL("../../../data/patterns/", import.meta.url),
-);
+/** The shipped catalogue. Resolved on use rather than at import, so `dataRoot` can throw at a caller. */
+function defaultDirectory(): string {
+  return dataPath("patterns");
+}
 
 /**
  * Validates and merges shards into a single catalogue.
@@ -112,9 +114,7 @@ export function buildCatalog(shards: readonly ShardSource[]): Catalog {
  * and an unordered traversal would let duplicate-name diagnostics — and any
  * future order-sensitive merge rule — differ between machines.
  */
-export async function loadCatalog(
-  directory: string = DEFAULT_DIRECTORY,
-): Promise<Catalog> {
+export async function loadCatalog(directory?: string): Promise<Catalog> {
   return buildCatalog(await readShards(directory));
 }
 
@@ -123,10 +123,9 @@ export async function loadCatalog(
  * the catalogue validator checks each file name against the categories its own
  * entries declare, which is only answerable before the merge flattens them.
  */
-export async function readShards(
-  directory: string = DEFAULT_DIRECTORY,
-): Promise<ShardSource[]> {
-  const entries = await readdir(directory);
+export async function readShards(directory?: string): Promise<ShardSource[]> {
+  const resolved = directory ?? defaultDirectory();
+  const entries = await readdir(resolved);
   const shardFiles = entries
     .filter((entry) => entry.endsWith(".json"))
     .toSorted(compareNames);
@@ -134,7 +133,7 @@ export async function readShards(
   const shards: ShardSource[] = [];
   for (const file of shardFiles) {
     const raw = await readFile(
-      new URL(file, pathToDirectoryUrl(directory)),
+      new URL(file, pathToDirectoryUrl(resolved)),
       "utf8",
     );
     shards.push({ source: file, contents: parseJson(file, raw) });
