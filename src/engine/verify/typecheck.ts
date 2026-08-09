@@ -64,6 +64,17 @@ export interface TypecheckOutcome {
 }
 
 /**
+ * What both verification paths reduce to: given files and options, return diagnostics. The unstable
+ * API is fast and the stable one is dependable, and the constitution permits the former only while
+ * the latter exists behind it, so the two must stay interchangeable.
+ */
+export interface Verifier {
+  warm(): Promise<void>;
+  check(files: readonly BundleFile[], conventions: Conventions): Promise<TypecheckOutcome>;
+  dispose(): Promise<void>;
+}
+
+/**
  * Compiler options derived from the caller's conventions, so verification runs under the settings the
  * caller compiles under rather than ours (FR-025). `noEmit` is ours and not negotiable: verification
  * asks a question, it does not produce artefacts.
@@ -129,7 +140,7 @@ function moduleOptions(
  * two overlapping checks would see each other's files. Callers needing concurrency should hold one
  * checker per worker.
  */
-export class Typechecker {
+export class Typechecker implements Verifier {
   #api: API | undefined;
   readonly #vfs: MutableVerificationFileSystem;
   readonly #timeoutMs: number;
