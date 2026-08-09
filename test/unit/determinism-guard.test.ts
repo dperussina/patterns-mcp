@@ -93,7 +93,9 @@ const pattern: GenerativePattern = generative({
   category: "type-safety",
   kind: "generative",
   intent: "Model failure as a value.",
-  supportsSplit: false,
+  // Splits, because the fixture offers an `emitScope` — a pattern may only offer a scope it can
+  // actually honour, and an enum option is worth keeping in the hashing tests below.
+  supportsSplit: true,
   variants: ["tagged"],
   options: [
     {

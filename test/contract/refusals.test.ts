@@ -68,11 +68,23 @@ describe("a value outside an option's declared space", () => {
     const text = await refusal({
       pattern: "result",
       identifiers: { entity: "Order" },
-      emitScope: "binding-only",
+      options: { includeTests: "yes" },
+    });
+
+    expect(text).toContain("includeTests");
+    expect(text).toContain("true");
+  });
+
+  it("refuses a scope the pattern cannot offer, rather than emitting the same bundle", async () => {
+    // `result` is a single module with no per-type binding, so it declares no `emitScope` at all.
+    // Accepting one would mean every value produced identical output while appearing to choose.
+    const text = await refusal({
+      pattern: "result",
+      identifiers: { entity: "Order" },
+      emitScope: "core-only",
     });
 
     expect(text).toContain("emitScope");
-    expect(text).toContain("core-only");
   });
 });
 

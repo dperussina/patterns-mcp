@@ -139,6 +139,35 @@ describe("PatternSchema", () => {
     expect(result.success).toBe(false);
   });
 
+  it("rejects an emitScope offered by a pattern that cannot split", () => {
+    // Every value would emit the same bundle, so the option advertises a choice that does not
+    // exist. Caught in practice by two golden snapshots coming out byte-identical.
+    const result = PatternSchema.safeParse({
+      ...generativePattern,
+      supportsSplit: false,
+      options: [
+        {
+          name: "emitScope",
+          type: "enum",
+          values: ["full", "core-only"],
+          default: "full",
+          description: "Which part of the bundle to emit.",
+          affects: ["files"],
+        },
+      ],
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("accepts a pattern that cannot split and offers no scope at all", () => {
+    const result = PatternSchema.safeParse({
+      ...generativePattern,
+      supportsSplit: false,
+      options: [],
+    });
+    expect(result.success).toBe(true);
+  });
+
   it.each(["CC-BY-NC-ND-4.0", "CC-BY-ND-4.0", "Weird-1.0"])(
     "rejects the unallowed licence %s",
     (license) => {

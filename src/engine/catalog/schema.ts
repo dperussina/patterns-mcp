@@ -177,7 +177,30 @@ export const PatternSchema = z.discriminatedUnion("kind", [
     .refine((p) => !p.relatedPatterns.includes(p.name), {
       message: "a pattern may not relate to itself",
       path: ["relatedPatterns"],
-    }),
+    })
+    /**
+     * A pattern that does not separate machinery from bindings has no scope to choose between, so
+     * offering one is a promise it cannot keep: every value would produce the same bundle
+     * (data-model.md §Pattern, FR-019). The golden snapshots caught exactly that — `core-only` and
+     * `full` were byte-identical for such a pattern — which is why the invariant lives here now
+     * rather than in a reviewer's memory.
+     */
+    .refine(
+      (p) =>
+        p.supportsSplit ||
+        !p.options.some(
+          (option) =>
+            option.name === "emitScope" &&
+            option.type === "enum" &&
+            option.values.some((value) => value !== "full"),
+        ),
+      {
+        message:
+          "a pattern with supportsSplit false must not offer an emitScope beyond full; " +
+          "every value would emit the same bundle",
+        path: ["options"],
+      },
+    ),
   z
     .strictObject({
       ...commonPatternFields,

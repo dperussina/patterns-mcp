@@ -153,7 +153,7 @@ describe("refusals name the field and the rule", () => {
       generate({
         pattern: "result",
         identifiers: { entity: "Order" },
-        options: { emitScope: "sideways" },
+        options: { includeTests: "sideways" },
       }),
     ).rejects.toThrow(InvalidOptionValueError);
   });

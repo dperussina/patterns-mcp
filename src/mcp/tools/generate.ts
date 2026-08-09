@@ -40,8 +40,9 @@ export const generateInput = z.object({
     .enum(["full", "core-only", "binding-only"])
     .optional()
     .describe(
-      "How much to emit. `full` is the reusable module with its example and tests; `core-only` omits " +
-        "the example and tests; `binding-only` emits just the glue for a core you already have.",
+      "For a pattern that separates shared machinery from per-type bindings: `full` emits both, " +
+        "`core-only` the machinery alone, `binding-only` just the glue for machinery you already " +
+        "have. Only offered by patterns that split; the rest emit one module and reject this.",
     ),
   coreModule: z
     .string()
