@@ -150,10 +150,35 @@ describe("list_patterns", () => {
     }
   });
 
+  /**
+   * The empty answer, on a combination derived rather than named.
+   *
+   * This asked for `category: "creational"` while nothing was in that category, and failed the day
+   * something was — so a catalog that had grown looked like a filter that had broken. The witness is
+   * computed instead: the first category-and-tier pair no pattern occupies. Deriving it over the pair
+   * rather than the category alone is what keeps it available once every category is populated.
+   */
   it("treats a combination that matches nothing as a success that says so", async () => {
+    const empty = CATEGORIES.flatMap((category) =>
+      TIERS.map((tier) => ({ category, tier })),
+    ).find(
+      (combination) =>
+        !catalog.patterns.some(
+          (pattern) =>
+            pattern.category === combination.category && pattern.tier === combination.tier,
+        ),
+    );
+
+    if (empty === undefined) {
+      throw new Error(
+        "Every category is populated at every tier, so this case has no witness left. " +
+          "Rewrite it against a filter that can still match nothing rather than deleting it.",
+      );
+    }
+
     const result = await session.client.callTool({
       name: "list_patterns",
-      arguments: { category: "creational" },
+      arguments: { category: empty.category, tier: empty.tier },
     });
 
     expect(result.isError).toBeFalsy();

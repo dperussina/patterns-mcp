@@ -1,0 +1,50 @@
+{
+  "patterns": [
+    {
+      "name": "factory",
+      "title": "Typed Factory",
+      "category": "creational",
+      "kind": "generative",
+      "intent": "Construct one of several product types from a key, with the key narrowing the return type at compile time and untrusted keys handled at the boundary.",
+      "supportsSplit": false,
+      "variants": [],
+      "options": [
+        {
+          "name": "registration",
+          "type": "enum",
+          "values": ["static", "dynamic"],
+          "default": "static",
+          "description": "Whether the set of kinds is closed. `static` fixes it at construction, which is the whole compile-time benefit. `dynamic` adds `extend`, returning a new factory whose type is widened by the creators added, so a plugin discovered at run time is still typed.",
+          "affects": ["core", "example", "test"]
+        },
+        {
+          "name": "errorMode",
+          "type": "enum",
+          "values": ["result", "throw"],
+          "default": "result",
+          "description": "How `from` reports a key it does not recognise. `result` returns a value carrying the unknown key and the ones it knows; `throw` raises an error carrying the same. Only `from` can fail — `create` takes a key the compiler has already checked.",
+          "affects": ["core", "example", "test"]
+        },
+        {
+          "name": "context",
+          "type": "boolean",
+          "default": false,
+          "description": "Pass a shared context to every creator alongside the input, so creators can reach dependencies without closing over module state.",
+          "affects": ["core", "example", "test"]
+        },
+        {
+          "name": "includeTests",
+          "type": "boolean",
+          "default": true,
+          "description": "Emit an executable test suite alongside the implementation.",
+          "affects": ["files", "test"]
+        }
+      ],
+      "legality": [],
+      "relatedPatterns": ["result"],
+      "provenance": "Original implementation. The factory idea is the Gang of Four's \"Design Patterns\" (1994), but nothing here is adapted from it: the book's formulation is a class hierarchy with a virtual constructor, and this is a key-indexed product map whose lookup narrows the return type, which is a TypeScript type-system construction with no equivalent in the original.",
+      "license": "original",
+      "tier": 1
+    }
+  ]
+}

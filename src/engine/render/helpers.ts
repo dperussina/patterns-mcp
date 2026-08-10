@@ -189,6 +189,10 @@ export function docAt(columns: number, ...paragraphs: readonly Renderable[]): st
   const width = Math.max(MIN_PROSE_WIDTH, PROSE_WIDTH - columns);
   const body: string[] = [];
 
+  // Tracked across paragraphs, not within one, since an example long enough to
+  // need a blank line in the middle is still one fenced block.
+  let fenced = false;
+
   for (const [index, block] of blocks.entries()) {
     if (index > 0) {
       body.push(`${pad} *`);
@@ -196,6 +200,24 @@ export function docAt(columns: number, ...paragraphs: readonly Renderable[]): st
     // A paragraph already broken into lines is respected: an author who wrote a
     // list or an `@throws` tag meant those line breaks.
     for (const line of block.split("\n")) {
+      if (line.trim().startsWith("```")) {
+        fenced = !fenced;
+        body.push(`${pad} * ${line.trim()}`);
+        continue;
+      }
+
+      // Inside a fence, the layout *is* the content. Wrapping collapses runs of
+      // whitespace, so a wrapped example loses every level of indentation and
+      // demonstrates the opposite of what it was written to show. The format
+      // step already declines to reflow a comment containing a fence
+      // (`format/reflow.ts`); this is the same rule one stage earlier, and
+      // without it a pattern could only include an example by hand-writing the
+      // whole comment.
+      if (fenced) {
+        body.push(line.trim() === "" ? `${pad} *` : `${pad} * ${line.trimEnd()}`);
+        continue;
+      }
+
       const wrapped = wrapProse(line, width);
       body.push(
         ...(wrapped.length === 0

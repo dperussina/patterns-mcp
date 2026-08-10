@@ -361,7 +361,18 @@ byte-identical results.
 - [ ] T085 [P] Add a response-budget test in `test/contract/budget.test.ts` asserting every pattern's `full` response stays within the budget documented in plan.md Performance Goals — 10,000 tokens typical, against the ~25,000-token point at which common agent hosts truncate. That figure lives in plan.md only; the test must read it from one place rather than restating it (SC-008)
 - [ ] T086 Implement `verbosity` handling — `full`, `code-only`, `summary` — plus `nextSteps` stating what to request when content is omitted (FR-028)
 - [ ] T087 Implement the oversized-result path: return a coherent subset plus an explicit statement of what was omitted and how to get it, never a silently truncated file (spec edge case)
-- [ ] T088 [P] Author the remaining tier-1 patterns to reach at least 20, weighted toward type-level safety and async resilience — semaphore, async queue, debounce, branded types, discriminated unions, typestate, specification, unit of work, and others (SC-013)
+- [ ] T088 [P] Author the remaining tier-1 patterns to reach at least 20, weighted toward type-level safety and async resilience (SC-013). The roster below is the agreed one; each entry is a catalog entry, a template, golden snapshots for every documented combination, and a green `pnpm check`
+  - [x] T088a `factory` — creational. Key-indexed product map whose lookup narrows the return type
+  - [ ] T088b `gateway` — structural. Typed boundary to a remote service, transport-agnostic, with one `fetch`-shaped adapter. Needs T116
+  - [ ] T088c `adapter` — structural. A foreign interface reshaped to a port the caller owns. Distinct from the `adapter` *file role*, which is a position in a bundle rather than a pattern
+  - [ ] T088d `builder`, `decorator` — creational and structural
+  - [ ] T088e `semaphore`, `async-queue`, `debounce`, `token-bucket` — async resilience
+  - [ ] T088f `branded-type`, `discriminated-union`, `typestate`, `parse-dont-validate` — type-level safety
+  - [ ] T088g `specification`, `typed-emitter` — behavioural
+  - [ ] T088h `unit-of-work` — data access, split-capable alongside `repository`
+  - [ ] T088i The `llm-orchestration` group, on the seam settled in research §13: `chat-model-port` (split-capable: the port is the core, each vendor adapter a binding), `structured-output`, `tool-loop`, `model-middleware`, `context-budget`, `stream-accumulator`
+- [ ] T116 Extend `src/engine/verify/platform-types.ts` with the `fetch` family — `fetch`, `Request`, `Response`, `Headers`, `URL` — as narrowly as the existing timer and `AbortController` declarations. Blocks T088b, and stays hand-written for the reason T113 established: resolving real `@types/node` would make a bundle's verification depend on what happened to be installed beside the server
+- [ ] T117 Add `llm-orchestration` to `CATEGORIES` in `src/engine/catalog/schema.ts` and regenerate `data/schema.json`. Blocks T088i
 - [ ] T089 [P] Add the agent skill surface under `skills/patterns/SKILL.md` driving the CLI, completing the third delivery surface (Principle X)
 - [ ] T090 Resolve the published package name and add `server.json` with a `name` matching `package.json#mcpName`, since the registry's npm ownership check compares them exactly
 - [ ] T091 [P] Generate pattern documentation from catalog data in `scripts/emit-docs.ts` rather than maintaining it by hand

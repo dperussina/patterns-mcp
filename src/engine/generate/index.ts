@@ -24,6 +24,7 @@ import type { NameTable, NameTransform } from "../options/names.js";
 import { resolveOptions } from "../options/resolve.js";
 import type { ResolvedRequest } from "../options/resolve.js";
 import { circuitBreakerPattern } from "../patterns/circuit-breaker/index.js";
+import { factoryPattern } from "../patterns/factory/index.js";
 import { repositoryPattern } from "../patterns/repository/index.js";
 import { resultPattern } from "../patterns/result/index.js";
 import { retryPattern } from "../patterns/retry/index.js";
@@ -67,6 +68,7 @@ export type GenerateResult = Bundle;
 /** Registered pattern modules, keyed by the catalog name each implements. */
 const MODULES: readonly PatternModule[] = [
   circuitBreakerPattern,
+  factoryPattern,
   repositoryPattern,
   resultPattern,
   retryPattern,
