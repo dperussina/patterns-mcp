@@ -20,6 +20,8 @@
  * closing, which is slower to recover and much harder to fool.
  */
 
+import { siblingSpecifier } from "../../generate/imports.js";
+import { expectFile } from "../expect-file.js";
 import { dedent, doc, docAt, joinLines, sections, when } from "../../render/helpers.js";
 import type { PatternModule, RenderContext, RenderedFile } from "../types.js";
 
@@ -1022,54 +1024,12 @@ function frameworkImport(framework: string): string {
   }
 }
 
-/**
- * `node:test` ships a runner but no assertion surface of this shape. Emitting a local helper keeps one
- * rendering of every test body and leaves the caller depending on nothing outside the standard library.
- */
+/** The matchers this pattern's suite calls; the file itself is shared with every other pattern. */
 function expectHelper(): string {
-  return dedent`
-    /**
-     * The slice of the \`expect\` surface these tests use, over \`node:assert\`.
-     *
-     * Here so that one rendering of the suite serves every framework.
-     */
-
-    import assert from "node:assert/strict";
-
-    export interface Expectation {
-      toBe(expected: unknown): void;
-      toEqual(expected: unknown): void;
-      toBeInstanceOf(expected: Function): void;
-      toThrow(): void;
-    }
-
-    export function expect(actual: unknown): Expectation {
-      return {
-        toBe(expected: unknown): void {
-          assert.strictEqual(actual, expected);
-        },
-        toEqual(expected: unknown): void {
-          assert.deepStrictEqual(actual, expected);
-        },
-        toBeInstanceOf(expected: Function): void {
-          assert.ok(actual instanceof expected);
-        },
-        toThrow(): void {
-          assert.throws(actual as () => unknown);
-        },
-      };
-    }
-  `;
+  return expectFile(["toBe", "toEqual", "toBeInstanceOf", "toThrow"]);
 }
 
 /** Import specifiers follow the caller's conventions, not ours (FR-030). */
 function importSpecifier(context: RenderContext, stem: string): string {
-  switch (context.conventions.importExtensions) {
-    case "js":
-      return `./${stem}.js`;
-    case "ts":
-      return `./${stem}.ts`;
-    case "none":
-      return `./${stem}`;
-  }
+  return siblingSpecifier(context.conventions, stem);
 }

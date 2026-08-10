@@ -5,7 +5,7 @@
  * `diagnosticCount: 0` and `testOutcome` more than description — they are the assertion that the
  * principle held for this response. So this builder refuses to construct a record that would state
  * something verification did not establish, rather than trusting its caller to only ask when it is
- * true. The failure mode it exists to prevent is a bundle with no tests reporting that tests passed.
+ * true. The failure mode it exists to prevent is a bundle reporting that tests passed when none ran.
  */
 
 import { hashCanonical } from "../provenance/hash.js";
@@ -32,6 +32,13 @@ export interface RecordInput {
   readonly compilerOptions: Readonly<Record<string, unknown>>;
   readonly diagnostics: readonly unknown[];
   readonly testOutcome: TestOutcome;
+  /**
+   * How many suites verification actually executed, which is not always how many the bundle carries: a
+   * `binding-only` bundle emits none and is still run against the core's, and a `core-only` one emits
+   * its suite while the binding's is exercised alongside it. The outcome describes what was run, so the
+   * invariant below has to be checked against what was run.
+   */
+  readonly executedTestFiles: number;
 }
 
 export function buildVerificationRecord(input: RecordInput): VerificationRecord {
@@ -44,9 +51,9 @@ export function buildVerificationRecord(input: RecordInput): VerificationRecord 
 
   const hasTests = input.files.some((file) => file.role === "test");
 
-  if (input.testOutcome === "passed" && !hasTests) {
+  if (input.testOutcome === "passed" && input.executedTestFiles === 0) {
     throw new RecordError(
-      "cannot record testOutcome \"passed\" for a bundle containing no test files; " +
+      "cannot record testOutcome \"passed\" when no test file was executed; " +
         "the correct record is \"skipped\"",
     );
   }

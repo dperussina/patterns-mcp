@@ -18,6 +18,8 @@
  * reusing, without driving a whole retry loop to observe it.
  */
 
+import { siblingSpecifier } from "../../generate/imports.js";
+import { expectFile } from "../expect-file.js";
 import { dedent, joinLines, when } from "../../render/helpers.js";
 import type { PatternModule, RenderContext, RenderedFile } from "../types.js";
 
@@ -771,58 +773,12 @@ function frameworkImport(framework: string): string {
   }
 }
 
-/**
- * `node:test` ships a runner but no assertion surface of this shape. Emitting a local helper keeps one
- * rendering of every test body and leaves the caller depending on nothing outside the standard library.
- */
+/** The matchers this pattern's suite calls; the file itself is shared with every other pattern. */
 function expectHelper(): string {
-  return dedent`
-    /**
-     * The slice of the \`expect\` surface these tests use, over \`node:assert\`.
-     *
-     * Here so that one rendering of the suite serves every framework.
-     */
-
-    import assert from "node:assert/strict";
-
-    export interface Expectation {
-      toBe(expected: unknown): void;
-      toEqual(expected: unknown): void;
-      toBeInstanceOf(expected: Function): void;
-      toHaveLength(expected: number): void;
-      toBeLessThan(expected: number): void;
-    }
-
-    export function expect(actual: unknown): Expectation {
-      return {
-        toBe(expected: unknown): void {
-          assert.strictEqual(actual, expected);
-        },
-        toEqual(expected: unknown): void {
-          assert.deepStrictEqual(actual, expected);
-        },
-        toBeInstanceOf(expected: Function): void {
-          assert.ok(actual instanceof expected);
-        },
-        toHaveLength(expected: number): void {
-          assert.strictEqual((actual as { length: number }).length, expected);
-        },
-        toBeLessThan(expected: number): void {
-          assert.ok((actual as number) < expected);
-        },
-      };
-    }
-  `;
+  return expectFile(["toBe", "toEqual", "toBeInstanceOf", "toHaveLength", "toBeLessThan"]);
 }
 
 /** Import specifiers follow the caller's conventions, not ours (FR-030). */
 function importSpecifier(context: RenderContext, stem: string): string {
-  switch (context.conventions.importExtensions) {
-    case "js":
-      return `./${stem}.js`;
-    case "ts":
-      return `./${stem}.ts`;
-    case "none":
-      return `./${stem}`;
-  }
+  return siblingSpecifier(context.conventions, stem);
 }

@@ -17,6 +17,17 @@ const file = (path: string, role: RenderedFile["role"]): RenderedFile => ({
   contents: `// ${path}\n`,
 });
 
+/** As a template would write it: a sibling `.ts` file reached through its `.js` specifier. */
+const importing = (
+  path: string,
+  role: RenderedFile["role"],
+  from: string,
+): RenderedFile => ({
+  path,
+  role,
+  contents: `import { thing } from "${from}";\nexport const used = thing;\n`,
+});
+
 /** One of every role, deliberately in the reverse of the expected order. */
 const oneOfEach: readonly RenderedFile[] = [
   file("types.ts", "types"),
@@ -138,6 +149,72 @@ describe("emit scope", () => {
         emitScope: "binding-only",
       }),
     ).toThrow(/binding-only/);
+  });
+});
+
+describe("a scoped bundle still has to be a bundle", () => {
+  it("refuses to emit a file importing a sibling the scope dropped", () => {
+    // How `core-only` shipped an example and a suite importing a binding it did not include. Both were
+    // individually right and verification could not see it: typechecking runs over the whole rendered
+    // set, so the import resolved there and only failed once the caller had the files.
+    expect(() =>
+      assembleBundle({
+        pattern: "repository",
+        files: [
+          file("repository-core.ts", "core"),
+          file("order-repository.ts", "binding"),
+          importing("order-repository-example.ts", "example", "./order-repository.js"),
+        ],
+        emitScope: "core-only",
+      }),
+    ).toThrow(/order-repository/);
+  });
+
+  it("accepts an import of a sibling the scope keeps", () => {
+    expect(() =>
+      assembleBundle({
+        pattern: "repository",
+        files: [
+          file("repository-core.ts", "core"),
+          importing("repository-core-example.ts", "example", "./repository-core.js"),
+        ],
+        emitScope: "core-only",
+      }),
+    ).not.toThrow();
+  });
+
+  it("allows a bare specifier, which names something the caller installs", () => {
+    expect(() =>
+      assembleBundle({
+        pattern: "repository",
+        files: [importing("order-repository.ts", "binding", "@acme/data")],
+        emitScope: "binding-only",
+      }),
+    ).not.toThrow();
+  });
+
+  it("allows a relative coreModule, which names something the caller already has", () => {
+    // The whole point of `binding-only`. Without the exemption this is indistinguishable from a sibling
+    // the bundle forgot to include, and every relative `coreModule` would be refused.
+    expect(() =>
+      assembleBundle({
+        pattern: "repository",
+        files: [importing("order-repository.ts", "binding", "./lib/repository-core.js")],
+        emitScope: "binding-only",
+        coreModule: "./lib/repository-core.js",
+      }),
+    ).not.toThrow();
+  });
+
+  it("still refuses a relative import that is not the coreModule", () => {
+    expect(() =>
+      assembleBundle({
+        pattern: "repository",
+        files: [importing("order-repository.ts", "binding", "./something-else.js")],
+        emitScope: "binding-only",
+        coreModule: "./lib/repository-core.js",
+      }),
+    ).toThrow(/something-else/);
   });
 });
 

@@ -48,6 +48,12 @@ export interface TestRunRequest {
   readonly files: readonly BundleFile[];
   /** Which of `files` are test entry points. Empty means there is nothing to execute. */
   readonly testPaths: readonly string[];
+  /**
+   * Files written byte-for-byte instead of transpiled — a `package.json` placing a synthesised core
+   * behind a bare specifier (`synthesize-core.ts`). Separate from `files` because transpiling JSON
+   * produces a syntactically valid JavaScript expression and a `package.json` that no longer parses.
+   */
+  readonly verbatimFiles?: readonly BundleFile[];
   readonly timeoutMs?: number;
 }
 
@@ -65,7 +71,7 @@ export async function runGeneratedTests(request: TestRunRequest): Promise<TestRu
     throw new Error(`Test entry points absent from the bundle: ${missing.toSorted().join(", ")}`);
   }
 
-  for (const file of request.files) {
+  for (const file of [...request.files, ...(request.verbatimFiles ?? [])]) {
     assertSafePath(file.path);
   }
 
@@ -73,7 +79,7 @@ export async function runGeneratedTests(request: TestRunRequest): Promise<TestRu
   // model checks the resolved path. Granting the unresolved one denies every read.
   const directory = await realpath(await mkdtemp(join(tmpdir(), "pattern-verify-")));
   try {
-    await materialise(directory, request.files);
+    await materialise(directory, request.files, request.verbatimFiles ?? []);
     return await execute(directory, request.testPaths, request.timeoutMs ?? DEFAULT_TIMEOUT_MS);
   } finally {
     await rm(directory, { recursive: true, force: true });
@@ -87,11 +93,21 @@ function assertSafePath(path: string): void {
   }
 }
 
-async function materialise(directory: string, files: readonly BundleFile[]): Promise<void> {
+async function materialise(
+  directory: string,
+  files: readonly BundleFile[],
+  verbatim: readonly BundleFile[],
+): Promise<void> {
   // CommonJS, so that an extensionless specifier resolves; ESM has no extension search.
   await writeFile(join(directory, "package.json"), `${JSON.stringify({ type: "commonjs" })}\n`);
 
   const required = new Set<string>();
+
+  for (const file of verbatim) {
+    const target = join(directory, file.path);
+    await mkdir(dirname(target), { recursive: true });
+    await writeFile(target, file.contents);
+  }
 
   for (const file of files) {
     const transpiled = transpile(file);

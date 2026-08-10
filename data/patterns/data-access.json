@@ -1,0 +1,58 @@
+{
+  "patterns": [
+    {
+      "name": "repository",
+      "title": "Repository",
+      "category": "data-access",
+      "kind": "generative",
+      "intent": "Put a typed collection interface in front of a datastore, so query and persistence details live behind one seam instead of spreading through the code that uses them.",
+      "supportsSplit": true,
+      "variants": [],
+      "options": [
+        {
+          "name": "pagination",
+          "type": "enum",
+          "values": ["cursor", "offset", "none"],
+          "default": "cursor",
+          "description": "How `list` returns more records than fit in one response. `cursor` continues from the last record returned, which stays correct while records are inserted. `offset` skips a count and reports the matching total, which is what a numbered pager needs and is only consistent if nothing is inserted between requests. `none` returns every match, which is honest for a collection with a known bound and a liability otherwise.",
+          "affects": ["core", "example", "test"]
+        },
+        {
+          "name": "idStyle",
+          "type": "enum",
+          "values": ["branded", "plain"],
+          "default": "branded",
+          "description": "Whether the entity's key is a distinct type or an alias for `string`. `branded` means one entity's id cannot be passed where another's is expected, at the cost of a factory call to make one. `plain` costs nothing and checks nothing.",
+          "affects": ["binding", "example", "test"]
+        },
+        {
+          "name": "emitScope",
+          "type": "enum",
+          "values": ["full", "core-only", "binding-only"],
+          "default": "full",
+          "description": "Which half of the pattern to emit. `full` is both. `core-only` is the datastore-independent machinery, which every entity's repository shares, with an example and suite that declare a sample binding inline since there is no binding file to import. `binding-only` is one entity's key type, collection, and factory — for a project that already has the core, and which then requires `coreModule`.",
+          "affects": ["files", "binding", "example", "test"]
+        },
+        {
+          "name": "coreModule",
+          "type": "string",
+          "default": "",
+          "description": "Where the already-installed core lives, as the binding should import it: `./repository-core.js`, or a package name. Required by `binding-only` and meaningless otherwise, since a full bundle carries the core beside the binding and imports it as a sibling.",
+          "affects": ["binding"]
+        },
+        {
+          "name": "includeTests",
+          "type": "boolean",
+          "default": true,
+          "description": "Emit an executable test suite alongside the implementation.",
+          "affects": ["files", "test"]
+        }
+      ],
+      "legality": [],
+      "relatedPatterns": ["result"],
+      "provenance": "Original implementation. The name and the intent are Martin Fowler's, from \"Patterns of Enterprise Application Architecture\" (2002), where it is described in prose rather than as code; the query language, the total-ordering rule for paging, and the Store seam are written here.",
+      "license": "original",
+      "tier": 1
+    }
+  ]
+}

@@ -94,11 +94,36 @@ export function documentedCombinations(pattern: GenerativePattern): readonly Com
   return combinations;
 }
 
+/**
+ * The two `binding-only` cases the cartesian product cannot reach (T060).
+ *
+ * `coreModule` is a string option, so `valuesOf` contributes its default alone — and its default is
+ * empty, which `binding-only` refuses. Every `binding-only` combination above is therefore a snapshot of
+ * that refusal, and the scope's actual output goes uncovered.
+ *
+ * Both specifier kinds are pinned because they take different routes through verification: a relative one
+ * has the synthesised core written at the path it resolves to, and a bare one has it written as a package
+ * under `node_modules` (see `synthesize-core.ts`). They are the same bundle apart from one string, which
+ * is exactly why a diff in only one of them is worth seeing.
+ */
+export function splitCombinations(pattern: GenerativePattern): readonly Combination[] {
+  if (!pattern.supportsSplit) return [];
+
+  return ["./lib/core.js", "@acme/core"].map((coreModule) => ({
+    emitScope: "binding-only",
+    coreModule,
+  }));
+}
+
 /** A stable, filesystem-safe label. Doubles as the snapshot's file name and its heading. */
 export function label(combination: Combination): string {
   const entries = Object.entries(combination);
   if (entries.length === 0) return "defaults";
-  return entries.map(([name, value]) => `${name}=${String(value)}`).join(",");
+  return entries
+    // A specifier is part of what distinguishes a case and also contains separators no file name can
+    // carry, so it is spelled with them replaced rather than left out of the label.
+    .map(([name, value]) => `${name}=${String(value).replaceAll(/[/@.]/g, "_")}`)
+    .join(",");
 }
 
 /**

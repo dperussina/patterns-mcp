@@ -21,6 +21,7 @@ export type ErrorCode =
   | "illegal_combination"
   | "invalid_identifier"
   | "missing_required_option"
+  | "split_unsupported"
   | "verification_failed";
 
 export abstract class EngineError extends Error {
@@ -119,6 +120,30 @@ export class InvalidIdentifierError extends CorrectableError {
   constructor(field: string, problem: string) {
     super(problem);
     this.field = field;
+  }
+}
+
+/**
+ * The caller asked a single-module pattern to emit part of itself.
+ *
+ * Mechanically this is an unknown option — `emitScope` is declared only by patterns that split, which
+ * the schema enforces in both directions — and `UnknownOptionError` would be accurate. It is a poor
+ * answer, though: "not declared for this pattern, here are the options that are" leaves the caller to
+ * infer why a pattern they know supports scopes elsewhere does not support them here, and the likely
+ * next move is to ask again with a different scope. Saying what the pattern does instead ends the
+ * exchange (US3 acceptance scenario 3).
+ */
+export class SplitUnsupportedError extends CorrectableError {
+  readonly code = "split_unsupported";
+  readonly pattern: string;
+
+  constructor(pattern: string) {
+    super(
+      `Pattern "${pattern}" emits a single module, so there is no scope to select. ` +
+        `It has no machinery to share between domain types and no per-type binding to emit ` +
+        `separately: request it without emitScope and the whole bundle is the answer.`,
+    );
+    this.pattern = pattern;
   }
 }
 

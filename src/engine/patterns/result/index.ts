@@ -13,6 +13,8 @@
  * they use and let a bundler drop the rest.
  */
 
+import { siblingSpecifier } from "../../generate/imports.js";
+import { expectFile } from "../expect-file.js";
 import { dedent, joinLines, when } from "../../render/helpers.js";
 import type { PatternModule, RenderContext, RenderedFile } from "../types.js";
 
@@ -485,51 +487,20 @@ function frameworkImport(framework: string): string {
   return `import { describe, expect, it } from "${framework}";`;
 }
 
-/**
- * The assertion surface the emitted suites use, over `node:assert`. Only what those suites call, so
- * there is nothing here a reader has to evaluate for correctness beyond the four lines that implement
- * it.
- */
+/** The assertion surface the emitted suites use, over `node:assert`. Only what those suites call. */
 function expectHelper(): string {
-  return dedent`
-    /** Assertions for the generated suite, over node:assert. No test library required. */
-
-    import assert from "node:assert/strict";
-
-    export interface Expectation<T> {
-      toBe(expected: T): void;
-      toEqual(expected: unknown): void;
-      toThrow(pattern?: RegExp): void;
-    }
-
-    export function expect<T>(received: T): Expectation<T> {
-      return {
-        toBe: (expected) => {
-          assert.strictEqual(received, expected);
-        },
-        toEqual: (expected) => {
-          assert.deepStrictEqual(received, expected);
-        },
-        toThrow: (pattern) => {
-          assert.throws(received as unknown as () => unknown, pattern);
-        },
-      };
-    }
-  `;
+  return expectFile(["toBe", "toEqual", "toThrow"]);
 }
 
 /**
  * The specifier a sibling file uses to import the core module, in the caller's extension convention
  * (FR-025). This is why the same bundle is verified three times in tests — each convention produces
  * different bytes and each has to compile.
+ *
+ * A sibling every time, even for a split pattern requested as `binding-only`. What a binding imports
+ * when the machinery is not beside it is decided once, in `generate/imports.ts`, by repointing this
+ * specifier — so a template cannot get it wrong by forgetting that the case exists.
  */
 function importSpecifier(context: RenderContext, stem: string): string {
-  switch (context.conventions.importExtensions) {
-    case "js":
-      return `./${stem}.js`;
-    case "ts":
-      return `./${stem}.ts`;
-    default:
-      return `./${stem}`;
-  }
+  return siblingSpecifier(context.conventions, stem);
 }

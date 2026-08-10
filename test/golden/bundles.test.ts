@@ -16,6 +16,7 @@ import {
   goldenPath,
   label,
   overWideComments,
+  splitCombinations,
 } from "./harness.js";
 
 const patterns = await generativePatterns();
@@ -23,7 +24,7 @@ const patterns = await generativePatterns();
 describe.each(patterns.map((pattern) => ({ pattern, name: pattern.name })))(
   "$name",
   ({ pattern }) => {
-    const combinations = documentedCombinations(pattern);
+    const combinations = [...documentedCombinations(pattern), ...splitCombinations(pattern)];
 
     it("documents at least one combination to cover", () => {
       // Guards the enumeration itself. A change that made `documentedCombinations` return nothing

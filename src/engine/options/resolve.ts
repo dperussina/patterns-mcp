@@ -16,6 +16,7 @@ import {
   InvalidIdentifierError,
   InvalidOptionValueError,
   MissingRequiredOptionError,
+  SplitUnsupportedError,
   UnknownOptionError,
 } from "../errors.js";
 import { ConventionsSchema, type Conventions } from "./conventions.js";
@@ -23,6 +24,13 @@ import { checkIdentifier } from "./identifiers.js";
 import type { GenerativePattern, Option } from "../catalog/schema.js";
 
 export type OptionValue = string | number | boolean;
+
+/**
+ * The options that exist only because a pattern splits. Named here so that
+ * supplying one to a pattern that does not split is answered by explaining the
+ * pattern rather than by listing option names.
+ */
+const SPLIT_OPTIONS = new Set(["emitScope", "coreModule"]);
 
 export interface ResolveRequest {
   readonly options?: Readonly<Record<string, unknown>>;
@@ -60,6 +68,14 @@ export function resolveOptions(
   // two unknown options always reports the same one first.
   for (const name of Object.keys(supplied).toSorted(compare)) {
     if (!declared.has(name)) {
+      // `emitScope` and `coreModule` are undeclared on a pattern that does not
+      // split, and a caller who supplies one has misunderstood the pattern
+      // rather than mistyped an option name. Answered with what the pattern
+      // does instead (T058).
+      if (SPLIT_OPTIONS.has(name) && !pattern.supportsSplit) {
+        throw new SplitUnsupportedError(pattern.name);
+      }
+
       throw new UnknownOptionError(
         name,
         pattern.options.map((option) => option.name),

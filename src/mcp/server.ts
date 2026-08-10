@@ -8,6 +8,7 @@
 
 import { McpServer } from "@modelcontextprotocol/server";
 
+import { disposeEngine } from "../engine/generate/index.js";
 import { CATALOG_CACHE_HINT, registerCatalogResources } from "./resources/catalog.js";
 import { describeInput, describeOutput, handleDescribe } from "./tools/describe.js";
 import { generateInput, generateOutput, handleGenerate } from "./tools/generate.js";
@@ -128,6 +129,26 @@ export function createServer(): McpServer {
   );
 
   registerCatalogResources(server);
+  releaseEngineOnClose(server);
 
   return server;
+}
+
+/**
+ * Releases the compiler when the server closes.
+ *
+ * The engine keeps one warm compiler subprocess for the life of the process, which is what makes a check
+ * cost ~13ms rather than ~130ms. Nothing else knows when that stops being wanted: the engine cannot tell a
+ * pause between requests from the end of the session, and the subprocess is an active handle, so a host
+ * that closed its server would sit there unable to exit. So the server, which is the thing whose lifetime
+ * matches the engine's, ends it — wrapping `close` rather than using `onclose`, because that hook belongs
+ * to whoever constructed the server and taking it would silently discard theirs.
+ */
+function releaseEngineOnClose(server: McpServer): void {
+  const close = server.close.bind(server);
+
+  server.close = async (): Promise<void> => {
+    await close();
+    await disposeEngine();
+  };
 }

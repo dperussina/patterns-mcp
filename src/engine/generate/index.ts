@@ -24,6 +24,7 @@ import type { NameTable, NameTransform } from "../options/names.js";
 import { resolveOptions } from "../options/resolve.js";
 import type { ResolvedRequest } from "../options/resolve.js";
 import { circuitBreakerPattern } from "../patterns/circuit-breaker/index.js";
+import { repositoryPattern } from "../patterns/repository/index.js";
 import { resultPattern } from "../patterns/result/index.js";
 import { retryPattern } from "../patterns/retry/index.js";
 import type { PatternModule, RenderedFile } from "../patterns/types.js";
@@ -36,8 +37,10 @@ import type { VerificationRecord } from "../verify/record.js";
 import { runGeneratedTests } from "../verify/run-tests.js";
 import { platformTypesFor } from "../verify/platform-types.js";
 import { bareImports, shimTypesFor } from "../verify/test-shims.js";
+import { synthesizeCore } from "../verify/synthesize-core.js";
 import { assembleBundle } from "./assemble.js";
 import type { EmitScope, File } from "./assemble.js";
+import { checkCoreModule, repointImports, stemOf } from "./imports.js";
 
 export interface GenerateRequest {
   readonly pattern: string;
@@ -62,7 +65,12 @@ export interface Bundle {
 export type GenerateResult = Bundle;
 
 /** Registered pattern modules, keyed by the catalog name each implements. */
-const MODULES: readonly PatternModule[] = [circuitBreakerPattern, resultPattern, retryPattern];
+const MODULES: readonly PatternModule[] = [
+  circuitBreakerPattern,
+  repositoryPattern,
+  resultPattern,
+  retryPattern,
+];
 
 export async function generate(request: GenerateRequest): Promise<GenerateResult> {
   const [catalog, names] = await Promise.all([catalogOnce(), nameTableOnce()]);
@@ -86,7 +94,10 @@ export async function generate(request: GenerateRequest): Promise<GenerateResult
     variant: resolved.variant,
   });
 
-  const attributed = withProvenance(rendered, {
+  const scope = emitScopeOf(resolved);
+  const repointed = repointToCoreModule(rendered, resolved, scope);
+
+  const attributed = withProvenance(repointed, {
     pattern: pattern.name,
     options: resolved.options,
     identifiers: resolved.identifiers,
@@ -100,12 +111,15 @@ export async function generate(request: GenerateRequest): Promise<GenerateResult
     })),
   );
 
-  const verification = await verify(formatted, resolved);
+  const verification = await verify(formatted, resolved, scope);
 
   const files = assembleBundle({
     pattern: pattern.name,
     files: formatted,
-    emitScope: emitScopeOf(resolved),
+    emitScope: scope,
+    ...(scope === "binding-only"
+      ? { coreModule: checkCoreModule(String(resolved.options.coreModule ?? "")) }
+      : {}),
   });
 
   return {
@@ -120,12 +134,88 @@ export async function generate(request: GenerateRequest): Promise<GenerateResult
       formatterVersion: formatterVersion(),
       compilerOptions: compilerOptionsFor(resolved.conventions),
       diagnostics: [],
-      testOutcome: files.some((file) => file.role === "test") ? "passed" : "skipped",
+      // What verification did, not what the bundle contains: a binding-only bundle emits no suite but
+      // was still executed against one, and reporting `skipped` there would understate the evidence.
+      testOutcome: verification.testOutcome,
+      executedTestFiles: verification.executedTestFiles,
     }),
-    notes: [],
+    notes: coreFitNotes(pattern, resolved, scope),
     warnings: [],
     nextSteps: [],
   };
+}
+
+/**
+ * Points a binding-only bundle's imports at the core the caller already has (FR-018, T056).
+ *
+ * Templates always import their siblings, so a binding in a full bundle reads `./repository-core.js`.
+ * In a binding-only bundle that file is not emitted, and this is the one place that knows it. Doing it
+ * here rather than handing templates a specifier to interpolate means a template cannot forget: a
+ * template that forgot would emit a binding importing a file the caller does not have, and it would
+ * still typecheck, because verification synthesises the core.
+ *
+ * Every rendered file is rewritten, not only the ones this scope emits, since the whole rendered set is
+ * what gets typechecked — a test still importing the sibling would be checked against a module the
+ * emitted binding no longer refers to.
+ */
+function repointToCoreModule(
+  rendered: readonly RenderedFile[],
+  resolved: ResolvedRequest,
+  scope: EmitScope,
+): readonly RenderedFile[] {
+  if (scope !== "binding-only") {
+    return rendered;
+  }
+
+  const coreModule = checkCoreModule(String(resolved.options.coreModule ?? ""));
+  const cores = rendered.filter((file) => file.role === "core" || file.role === "types");
+
+  // Every spelling of a sibling import of the core, because the specifier a template wrote depends on
+  // the caller's extension convention and there is no reason for this to re-derive which one it chose.
+  const from = cores.flatMap((file) => [
+    `./${stemOf(file.path)}`,
+    `./${stemOf(file.path)}.js`,
+    `./${stemOf(file.path)}.ts`,
+  ]);
+
+  return repointImports({ files: rendered, from, to: coreModule });
+}
+
+/**
+ * What a binding-only caller is told about the core it has to fit (T105).
+ *
+ * The mismatch this addresses cannot be detected here: the core regenerated for verification is the one
+ * *this request* describes, and the file in the caller's repository is invisible to us. A binding built
+ * for cursor paging and a core installed with offset paging are each internally consistent, so there is
+ * no diagnostic to raise — only an expectation to state.
+ *
+ * So the note names the options the core depends on, taken from the `affects` metadata rather than a
+ * hand-written list, which is what keeps it true when an option is added. A caller compares them against
+ * the `@options` header in their installed core, and a mismatch is a glance rather than a compiler
+ * error in a file they did not generate.
+ */
+function coreFitNotes(
+  pattern: GenerativePattern,
+  resolved: ResolvedRequest,
+  scope: EmitScope,
+): readonly string[] {
+  if (scope !== "binding-only") {
+    return [];
+  }
+
+  const shared = pattern.options
+    .filter((option) => option.affects.includes("core") || option.affects.includes("types"))
+    .map((option) => `${option.name}=${String(resolved.options[option.name])}`);
+
+  if (shared.length === 0) {
+    return [];
+  }
+
+  return [
+    `This binding fits a core generated with ${shared.join(", ")}. Nothing here can read the core ` +
+      `at "${String(resolved.options.coreModule)}", so if it was generated with different values the ` +
+      `two will not fit — check the @options line in its provenance header before adopting this.`,
+  ];
 }
 
 /**
@@ -134,22 +224,44 @@ export async function generate(request: GenerateRequest): Promise<GenerateResult
  * returned.
  */
 async function verify(
-  files: readonly RenderedFile[],
+  rendered: readonly RenderedFile[],
   resolved: ResolvedRequest,
-): Promise<{ readonly compilerVersion: string }> {
+  scope: EmitScope,
+): Promise<{
+  readonly compilerVersion: string;
+  readonly testOutcome: "passed" | "skipped";
+  readonly executedTestFiles: number;
+}> {
   const verifier = verifierOnce();
+
+  // A binding-only bundle imports a module this process has never seen, so the core is regenerated
+  // into the verification file system under the caller's specifier and discarded afterwards (T104).
+  const synthesis =
+    scope === "binding-only"
+      ? synthesizeCore({
+          files: rendered,
+          coreModule: checkCoreModule(String(resolved.options.coreModule ?? "")),
+        })
+      : { verbatim: [], files: rendered };
+  const files = synthesis.files;
 
   // Declarations for the caller's test runner, present for the compiler and absent from the bundle.
   const imported = new Set<string>();
   for (const file of files) {
     for (const specifier of bareImports(file.contents)) imported.add(specifier);
   }
+  // The core's own specifier is satisfied by the synthesised module, not by a runner shim.
+  if (scope === "binding-only") {
+    imported.delete(String(resolved.options.coreModule ?? ""));
+  }
   // Host facilities — timers, AbortSignal — are declared unconditionally rather than per import, since
   // they are globals a bundle uses without importing anything.
   const declarations = [
-    ...shimTypesFor([...imported]),
-    ...platformTypesFor(resolved.conventions),
-  ].map(([path, contents]) => ({ path, contents }));
+    ...[...shimTypesFor([...imported]), ...platformTypesFor(resolved.conventions)].map(
+      ([path, contents]) => ({ path, contents }),
+    ),
+    ...synthesis.verbatim,
+  ];
 
   const outcome = await verifier.check(
     [
@@ -170,19 +282,30 @@ async function verify(
   const testPaths = files.filter((file) => file.role === "test").map((file) => file.path);
   const entryPoints = testPaths.filter((path) => path.endsWith(".test.ts"));
 
+  // `failed` is absent by construction: a failure throws below rather than being reported.
+  let run: "passed" | "skipped" = "skipped";
   if (entryPoints.length > 0) {
-    const run = await runGeneratedTests({
+    const result = await runGeneratedTests({
       files: files.map((file) => ({ path: file.path, contents: file.contents })),
       testPaths: entryPoints,
+      // A synthesised core behind a package specifier needs its `package.json` written as-is; it is
+      // not TypeScript, so it must not go through transpilation with the rest.
+      verbatimFiles: synthesis.verbatim,
     });
 
-    if (run.outcome !== "passed") {
-      throw new VerificationError("tests", hashOf(resolved), [run.detail ?? run.outcome]);
+    if (result.outcome === "failed") {
+      throw new VerificationError("tests", hashOf(resolved), [result.detail ?? result.outcome]);
     }
+    run = result.outcome;
   }
 
-  return { compilerVersion: outcome.compilerVersion };
+  return {
+    compilerVersion: outcome.compilerVersion,
+    testOutcome: run,
+    executedTestFiles: run === "passed" ? entryPoints.length : 0,
+  };
 }
+
 
 /**
  * Jest suites cannot be executed in the verification sandbox yet — it has no node_modules, and unlike

@@ -131,6 +131,35 @@ function matchers(received, negated) {
 }
 
 /**
+ * \`expect(promise).rejects.toBeInstanceOf(E)\`: the same matchers, applied to the rejection reason.
+ *
+ * Every matcher is offered rather than a chosen few, because the reason is an ordinary value and any
+ * assertion that makes sense about a value makes sense about it. A promise that resolves fails here
+ * rather than passing vacuously — the alternative is a test of an error path that stops testing
+ * anything the moment the error stops being thrown, which is the failure this most needs to catch.
+ */
+function rejected(received, negated) {
+  const target = {};
+
+  for (const name of SUPPORTED) {
+    target[name] = async (...args) => {
+      let reason;
+      let threw = false;
+      try {
+        await received;
+      } catch (error) {
+        threw = true;
+        reason = error;
+      }
+      if (!threw) fail("expected the promise to reject, but it resolved");
+      matchers(reason, negated)[name](...args);
+    };
+  }
+
+  return guard(target);
+}
+
+/**
  * Unknown matchers throw. A shim that quietly accepted one would report a suite as passing without
  * having checked what it claims to check.
  */
@@ -150,7 +179,12 @@ function guard(target) {
 
 function expect(received) {
   const base = matchers(received, false);
-  return guard(Object.assign(base, { not: guard(matchers(received, true)) }));
+  return guard(
+    Object.assign(base, {
+      not: guard(Object.assign(matchers(received, true), { rejects: rejected(received, true) })),
+      rejects: rejected(received, false),
+    }),
+  );
 }
 
 expect.fail = (message) => fail(message ?? "expect.fail()");
@@ -286,6 +320,24 @@ function declarationFor(name: string): string {
     toBeLessThan(expected: number): void;
     toBeCloseTo(expected: number, digits?: number): void;
     readonly not: Expectation<T>;
+    // The rejection reason, which nothing can know the type of: a promise's type says what it
+    // resolves to and never what it rejects with.
+    readonly rejects: Rejection;
+  }
+
+  export interface Rejection {
+    toBe(expected: unknown): Promise<void>;
+    toEqual(expected: unknown): Promise<void>;
+    toBeUndefined(): Promise<void>;
+    toBeDefined(): Promise<void>;
+    toBeNull(): Promise<void>;
+    toBeTruthy(): Promise<void>;
+    toBeFalsy(): Promise<void>;
+    toBeInstanceOf(expected: abstract new (...args: never[]) => unknown): Promise<void>;
+    toContain(expected: unknown): Promise<void>;
+    toHaveLength(expected: number): Promise<void>;
+    toBeGreaterThan(expected: number): Promise<void>;
+    toBeLessThan(expected: number): Promise<void>;
   }
 
   export function expect<T>(received: T): Expectation<T>;

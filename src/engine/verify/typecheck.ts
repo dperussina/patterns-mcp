@@ -148,6 +148,11 @@ export class Typechecker implements Verifier {
   readonly #timeoutMs: number;
   /** Tail of the queue of checks. Always settled fulfilled, so one failure cannot reject the next. */
   #queue: Promise<void> = Promise.resolve();
+  /**
+   * Compilers detached by `#abandon` and not yet closed. Held rather than forgotten so that disposal
+   * covers them: under a parallel test run the grace period regularly outlives the process itself.
+   */
+  readonly #abandoned = new Set<API>();
 
   constructor(options: { readonly timeoutMs?: number } = {}) {
     this.#vfs = createMutableVerificationFileSystem();
@@ -194,8 +199,13 @@ export class Typechecker implements Verifier {
   async dispose(): Promise<void> {
     const api = this.#api;
     this.#api = undefined;
-    // A crashed compiler makes close() throw; there is nothing left to release, so it does not matter.
-    await api?.close().catch(() => undefined);
+
+    // Abandoned instances too, or a compiler that failed mid-run outlives the disposal that was meant to
+    // clean up after it — the case that still left one process behind once the live one was handled.
+    const held = [...this.#abandoned, ...(api === undefined ? [] : [api])];
+    this.#abandoned.clear();
+
+    await Promise.all(held.map(async (instance) => await release(instance)));
   }
 
   /**
@@ -212,7 +222,12 @@ export class Typechecker implements Verifier {
     this.#api = undefined;
     if (api === undefined) return;
 
-    const timer = setTimeout(() => void api.close().catch(() => undefined), ABANDON_GRACE_MS);
+    this.#abandoned.add(api);
+
+    const timer = setTimeout(() => {
+      this.#abandoned.delete(api);
+      void release(api);
+    }, ABANDON_GRACE_MS);
     timer.unref?.();
   }
 
@@ -268,6 +283,7 @@ export class Typechecker implements Verifier {
       fileChanges: changes,
     });
 
+
     const project = snapshot.getProjects()[0];
     if (project === undefined) {
       // Only reachable if the tsconfig failed to load, which is our bug rather than the bundle's.
@@ -277,6 +293,55 @@ export class Typechecker implements Verifier {
     const raw = await project.program.getSemanticDiagnostics();
     return raw.map(toDiagnostic).toSorted(byPathThenCode);
   }
+}
+
+/**
+ * Ends a compiler and the process behind it.
+ *
+ * The handle is taken *before* closing, since `close()` drops the reference — read it afterwards and there
+ * is nothing left to kill.
+ */
+async function release(api: API): Promise<void> {
+  const child = subprocessOf(api);
+  // A crashed compiler makes close() throw; there is nothing left to release, so it does not matter.
+  await api.close().catch(() => undefined);
+  child?.kill();
+}
+
+/**
+ * The compiler's subprocess, if the API is still holding one.
+ *
+ * Reaching past the published surface, which needs justifying. `close()` ends the child's stdin and drops
+ * its reference without waiting for it to exit — deliberately, since the child blocks on that read and
+ * would deadlock on a signal. What it leaves behind is a live process nobody is waiting for: when the host
+ * exits first, the child is reparented to init and stays. Five of them accumulated across a few test runs
+ * before this existed, and Vitest reported that something was preventing the run from exiting.
+ *
+ * So the handle is fetched to do the one thing `close()` does not: end the process. Best-effort by
+ * construction — the field is private to an unstable API and may vanish — and if it does, the failure mode
+ * is the behaviour we already had rather than a broken verifier.
+ *
+ * Unreffing it was the other obvious idea and is deliberately not done. It works, in that the host stops
+ * being held open, and it also lets the host exit *during* a check: a script that generated one bundle
+ * exited mid-verification with the promise unsettled. Trading a hang for a silently dropped verification
+ * is not an improvement, so a host that owns a verifier disposes it instead.
+ */
+function subprocessOf(api: API): Subprocess | undefined {
+  const client: unknown = (api as unknown as { readonly client?: unknown }).client;
+  if (typeof client !== "object" || client === null) return undefined;
+
+  const child: unknown = (client as { readonly process?: unknown }).process;
+  if (typeof child !== "object" || child === null) return undefined;
+
+  const handle = child as { kill?: unknown; unref?: unknown };
+  return typeof handle.kill === "function" && typeof handle.unref === "function"
+    ? (child as Subprocess)
+    : undefined;
+}
+
+interface Subprocess {
+  kill(): void;
+  unref(): void;
 }
 
 function treeFor(

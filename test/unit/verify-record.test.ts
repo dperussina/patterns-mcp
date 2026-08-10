@@ -20,6 +20,7 @@ const base = {
   formatterVersion: "prettier@3.9.6",
   compilerOptions: { strict: true, target: "es2023" },
   diagnostics: [] as readonly unknown[],
+  executedTestFiles: 1,
 };
 
 describe("a record only exists for a bundle that passed", () => {
@@ -46,14 +47,27 @@ describe("a record only exists for a bundle that passed", () => {
     ).toThrow(/diagnostic/i);
   });
 
-  it("refuses to claim tests passed when the bundle contains none", () => {
+  it("refuses to claim tests passed when none was executed", () => {
     expect(() =>
       buildVerificationRecord({
         ...base,
         files: [files[0]!],
+        executedTestFiles: 0,
         testOutcome: "passed",
       }),
     ).toThrow(/test/i);
+  });
+
+  it("accepts passing tests for a bundle that emits none, having executed some", () => {
+    // A binding-only bundle: the suite was run against a core synthesised for verification and then
+    // discarded, so the evidence is real even though no test file is returned (T104).
+    const record = buildVerificationRecord({
+      ...base,
+      files: [{ path: "order-repository.ts", role: "binding", contents: "export const x = 1;\n" }],
+      executedTestFiles: 1,
+      testOutcome: "passed",
+    });
+    expect(record.testOutcome).toBe("passed");
   });
 
   it("refuses to claim tests were skipped when the bundle contains some", () => {
@@ -64,6 +78,7 @@ describe("a record only exists for a bundle that passed", () => {
     const record = buildVerificationRecord({
       ...base,
       files: [files[0]!],
+      executedTestFiles: 0,
       testOutcome: "skipped",
     });
     expect(record.testOutcome).toBe("skipped");

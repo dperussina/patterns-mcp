@@ -11,6 +11,9 @@ export default defineConfig({
       test: {
         name: suite,
         include: [`test/${suite}/**/*.test.ts`],
+        // Every suite, because any of them may reach `generate()` transitively and the compiler
+        // subprocess it holds would otherwise keep the worker alive (see test/teardown.ts).
+        setupFiles: ["./test/teardown.ts"],
       },
     })),
   },

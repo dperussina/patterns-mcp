@@ -152,6 +152,15 @@ export function wrapProse(text: string, width = PROSE_WIDTH): string[] {
  * only place that knows what column a composed fragment finally lands at
  * (`format/reflow.ts`). What this buys is a template whose own source reads
  * like the file it produces.
+ *
+ * One rule for prose that interpolates a caller's identifier: never put `a` or
+ * `an` in front of it. Which one is right depends on how the word is *said* —
+ * "an Order", "a User", "an hour", "a union" — so any rule this code could
+ * apply is wrong for some name a caller will supply, and "A Order's key" is the
+ * sentence that makes a generated file read as machine-written. Name the type in
+ * backticks instead: "The key type for `Order`" needs no article and reads as
+ * documentation either way. The same reasoning as `names.ts`: where English is
+ * inconsistent, do not guess.
  */
 export function doc(...paragraphs: readonly Renderable[]): string {
   return docAt(0, ...paragraphs);
@@ -197,6 +206,35 @@ export function docAt(columns: number, ...paragraphs: readonly Renderable[]): st
   }
 
   return [`${pad}/**`, ...body, `${pad} */`].join("\n");
+}
+
+/**
+ * A declaration with its doc comment attached.
+ *
+ * The blank line matters and is easy to get wrong. `sections` separates its parts with one, so a
+ * template that passes `doc(...)` and the declaration as two sections emits a comment with a gap under
+ * it — which is no longer a doc comment at all. It documents nothing, editors do not show it on hover,
+ * and the only symptom is prose that has quietly stopped being attached to anything. Every generated
+ * comment in this codebase is load-bearing, so that failure is worth a named helper rather than a
+ * convention each pattern author has to remember.
+ */
+export function documented(
+  paragraphs: readonly Renderable[],
+  code: Renderable,
+): string {
+  return joinLines(doc(...paragraphs), code);
+}
+
+/**
+ * `documented`, for a declaration sitting `columns` deep. The code is indented too, since a comment at
+ * one depth above a member at another is the same detachment in a different shape.
+ */
+export function documentedAt(
+  columns: number,
+  paragraphs: readonly Renderable[],
+  code: Renderable,
+): string {
+  return joinLines(docAt(columns, ...paragraphs), indent(stringify(code), columns));
 }
 
 /**

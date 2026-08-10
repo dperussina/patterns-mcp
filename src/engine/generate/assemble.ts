@@ -6,6 +6,8 @@
  * the roles that survive are decided by `emitScope` (Principle I, FR-004, FR-017).
  */
 
+import { siblingImports, stemOf } from "./imports.js";
+
 import type { FileRole, RenderedFile } from "../patterns/types.js";
 
 /**
@@ -49,6 +51,14 @@ export interface AssembleInput {
   readonly pattern: string;
   readonly files: readonly RenderedFile[];
   readonly emitScope: EmitScope;
+  /**
+   * Where a `binding-only` bundle's core already lives (FR-018).
+   *
+   * Needed because it may be relative — `./lib/repository-core.js` names a file in the caller's project,
+   * and a relative specifier is otherwise indistinguishable from a sibling this bundle failed to include.
+   * It is the one module a bundle is *meant* to import without carrying.
+   */
+  readonly coreModule?: string;
 }
 
 /**
@@ -92,8 +102,49 @@ export function assembleBundle(input: AssembleInput): readonly File[] {
     );
   }
 
+  assertSelfContained(input.pattern, input.emitScope, kept, input.coreModule);
+
   return kept.toSorted(byRoleThenPath);
 }
+
+/**
+ * Every sibling a bundle imports has to be in the bundle.
+ *
+ * Verification cannot catch this, and that is the whole reason it exists here. Typechecking runs over the
+ * *rendered* set on purpose — a `core-only` request is still proven against the suite that exercises it —
+ * so a file importing a sibling that this scope drops compiles perfectly during verification and arrives
+ * at the caller referring to a module they were never sent. That is how `core-only` came to emit an
+ * example and a suite importing a binding it does not include: both halves were individually correct.
+ *
+ * A scope's job is to select whole subsets, not to cut files loose from their imports, so this is a
+ * defect in the scope table or in the pattern rather than anything a caller did — hence a throw.
+ *
+ * Only relative specifiers are checked, and `coreModule` is exempt whichever form it takes. A bare
+ * specifier names something the caller installs; `coreModule` names something they already have. Both are
+ * meant to be absent, which is the difference between an external dependency and a missing file.
+ */
+function assertSelfContained(
+  pattern: string,
+  scope: EmitScope,
+  kept: readonly File[],
+  coreModule: string | undefined,
+): void {
+  const present = new Set(kept.map((file) => stemOf(file.path)));
+
+  for (const file of kept) {
+    for (const specifier of siblingImports(file.contents)) {
+      if (specifier === coreModule) continue;
+      if (present.has(stemOf(specifier))) continue;
+
+      throw new AssemblyError(
+        `pattern "${pattern}" at emitScope "${scope}" emits "${file.path}", which imports ` +
+          `"${specifier}" — a file this scope does not emit. Either the scope must keep it or the ` +
+          `pattern must not render that import at this scope.`,
+      );
+    }
+  }
+}
+
 
 export class AssemblyError extends Error {
   constructor(message: string) {
