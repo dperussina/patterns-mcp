@@ -15,7 +15,7 @@
           "values": ["exponential", "linear", "constant"],
           "default": "exponential",
           "description": "How the delay grows between attempts. `exponential` multiplies by a factor each time, `linear` adds the base delay each time, `constant` waits the same amount every time.",
-          "affects": ["core"]
+          "affects": ["core", "test"]
         },
         {
           "name": "jitter",
@@ -23,7 +23,7 @@
           "values": ["full", "equal", "none"],
           "default": "full",
           "description": "How much randomness to mix into each delay, so that many clients failing together do not retry in lockstep. `full` picks anywhere from zero to the computed delay, `equal` picks from the upper half of it, `none` uses it exactly and needs no random source.",
-          "affects": ["core"]
+          "affects": ["core", "test"]
         },
         {
           "name": "cancellation",
@@ -31,14 +31,14 @@
           "values": ["abort-signal", "none"],
           "default": "abort-signal",
           "description": "Whether the retry loop accepts an AbortSignal, so a caller can abandon it mid-wait. `none` emits a loop with no cancellation plumbing at all.",
-          "affects": ["core"]
+          "affects": ["core", "example", "test"]
         },
         {
           "name": "includeTests",
           "type": "boolean",
           "default": true,
           "description": "Emit an executable test suite alongside the implementation.",
-          "affects": ["files"]
+          "affects": ["files", "test"]
         }
       ],
       "legality": [],
@@ -62,7 +62,7 @@
           "values": ["consecutive", "rolling-window"],
           "default": "consecutive",
           "description": "What counts as enough failure to open. `consecutive` opens after a run of failures with no success between them, and forgets the run on any success. `rolling-window` opens when enough failures land inside a time window, so an intermittent fault that never quite manages a clean run still trips it.",
-          "affects": ["core"]
+          "affects": ["core", "test"]
         },
         {
           "name": "halfOpen",
@@ -70,14 +70,14 @@
           "values": ["single-probe", "sampled"],
           "default": "single-probe",
           "description": "How recovery is tested once the cooldown expires. `single-probe` admits exactly one call and decides on it alone. `sampled` admits several and requires a quota of successes, which is slower to close but far less likely to close onto a dependency that is only intermittently back.",
-          "affects": ["core"]
+          "affects": ["core", "test"]
         },
         {
           "name": "includeTests",
           "type": "boolean",
           "default": true,
           "description": "Emit an executable test suite alongside the implementation.",
-          "affects": ["files"]
+          "affects": ["files", "test"]
         }
       ],
       "legality": [],

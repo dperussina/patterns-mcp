@@ -37,14 +37,14 @@ function makePattern(
         type: "string",
         default: "",
         description: "Specifier of the already-emitted core module.",
-        affects: ["imports"],
+        affects: ["core"],
       },
       {
         name: "includeTests",
         type: "boolean",
         default: true,
         description: "Whether to emit tests.",
-        affects: ["tests"],
+        affects: ["test"],
       },
       {
         name: "retries",

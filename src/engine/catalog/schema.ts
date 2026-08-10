@@ -74,6 +74,36 @@ export const TierSchema = z.union([
 ]);
 
 /**
+ * The output surfaces an option is allowed to move.
+ *
+ * A closed vocabulary rather than free text, because the diff-stability harness
+ * checks these claims mechanically and free text cannot be checked at all: an
+ * option declaring `affects: ["behaviour"]` names nothing the harness can look
+ * for, so the declaration passes by being unfalsifiable (SC-005).
+ *
+ * The values are the file roles, plus `files` for changing which files exist at
+ * all. Roles are the right grain because they are already what `emitScope`
+ * filters on and what ordering keys off, so a reader who knows what a bundle
+ * contains already knows this vocabulary. Finer grain — naming individual
+ * declarations — was considered and rejected: the names are identifier-dependent
+ * (`OrderResult`, not `Result`), so a pattern could not state them without
+ * knowing what a caller will ask it to generate. The harness reaches that grain
+ * a different way, by recording each option's blast radius and requiring a
+ * widening to be reviewed.
+ */
+export const AFFECTED_SURFACES = [
+  "files",
+  "types",
+  "core",
+  "binding",
+  "adapter",
+  "example",
+  "test",
+] as const;
+
+export const AffectsSchema = z.array(z.enum(AFFECTED_SURFACES)).min(1);
+
+/**
  * Options are a union discriminated on `type` rather than a flat record with a
  * refinement. This makes two of the table's rules structural instead of
  * conditional: `values` can only exist on an enum option, and `default` is
@@ -87,7 +117,7 @@ export const OptionSchema = z.discriminatedUnion("type", [
       values: z.array(z.string().min(1)).min(2),
       default: z.string(),
       description: z.string().min(1),
-      affects: z.array(z.string().min(1)),
+      affects: AffectsSchema,
     })
     .refine((o) => o.values.includes(o.default), {
       message: "default must be one of values",
@@ -98,21 +128,21 @@ export const OptionSchema = z.discriminatedUnion("type", [
     type: z.literal("boolean"),
     default: z.boolean(),
     description: z.string().min(1),
-    affects: z.array(z.string().min(1)),
+    affects: AffectsSchema,
   }),
   z.strictObject({
     name: optionName,
     type: z.literal("string"),
     default: z.string(),
     description: z.string().min(1),
-    affects: z.array(z.string().min(1)),
+    affects: AffectsSchema,
   }),
   z.strictObject({
     name: optionName,
     type: z.literal("integer"),
     default: z.number().int(),
     description: z.string().min(1),
-    affects: z.array(z.string().min(1)),
+    affects: AffectsSchema,
   }),
 ]);
 

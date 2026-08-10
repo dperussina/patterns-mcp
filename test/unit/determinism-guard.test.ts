@@ -119,7 +119,7 @@ const pattern: GenerativePattern = generative({
       type: "integer",
       default: 3,
       description: "Nesting depth.",
-      affects: ["body"],
+      affects: ["core"],
     },
   ],
   legality: [],

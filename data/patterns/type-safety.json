@@ -14,7 +14,7 @@
           "type": "boolean",
           "default": true,
           "description": "Emit an executable test suite alongside the implementation.",
-          "affects": ["files"]
+          "affects": ["files", "test"]
         },
         {
           "name": "includeAsync",
@@ -28,7 +28,7 @@
           "type": "boolean",
           "default": true,
           "description": "Emit the collection combinators (all, partition) that turn many results into one.",
-          "affects": ["core"]
+          "affects": ["core", "test"]
         }
       ],
       "legality": [],

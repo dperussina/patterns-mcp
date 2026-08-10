@@ -128,10 +128,19 @@
                           "minLength": 1
                         },
                         "affects": {
+                          "minItems": 1,
                           "type": "array",
                           "items": {
                             "type": "string",
-                            "minLength": 1
+                            "enum": [
+                              "files",
+                              "types",
+                              "core",
+                              "binding",
+                              "adapter",
+                              "example",
+                              "test"
+                            ]
                           }
                         }
                       },
@@ -165,10 +174,19 @@
                           "minLength": 1
                         },
                         "affects": {
+                          "minItems": 1,
                           "type": "array",
                           "items": {
                             "type": "string",
-                            "minLength": 1
+                            "enum": [
+                              "files",
+                              "types",
+                              "core",
+                              "binding",
+                              "adapter",
+                              "example",
+                              "test"
+                            ]
                           }
                         }
                       },
@@ -201,10 +219,19 @@
                           "minLength": 1
                         },
                         "affects": {
+                          "minItems": 1,
                           "type": "array",
                           "items": {
                             "type": "string",
-                            "minLength": 1
+                            "enum": [
+                              "files",
+                              "types",
+                              "core",
+                              "binding",
+                              "adapter",
+                              "example",
+                              "test"
+                            ]
                           }
                         }
                       },
@@ -239,10 +266,19 @@
                           "minLength": 1
                         },
                         "affects": {
+                          "minItems": 1,
                           "type": "array",
                           "items": {
                             "type": "string",
-                            "minLength": 1
+                            "enum": [
+                              "files",
+                              "types",
+                              "core",
+                              "binding",
+                              "adapter",
+                              "example",
+                              "test"
+                            ]
                           }
                         }
                       },

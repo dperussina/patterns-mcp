@@ -33,7 +33,7 @@ function patternWith(legality: unknown[]): GenerativePattern {
         type: "boolean",
         default: true,
         description: "Whether to emit tests.",
-        affects: ["tests"],
+        affects: ["test"],
       },
       {
         name: "retries",

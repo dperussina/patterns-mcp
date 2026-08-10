@@ -78,7 +78,7 @@ describe("OptionSchema", () => {
       type: "boolean",
       default: true,
       description: "Whether to emit tests.",
-      affects: ["tests"],
+      affects: ["test"],
       values: ["yes", "no"],
     });
     expect(result.success).toBe(false);
@@ -90,6 +90,25 @@ describe("OptionSchema", () => {
 
   it("rejects an empty description, since descriptions are the caller's only guide", () => {
     expect(OptionSchema.safeParse({ ...enumOption, description: "" }).success).toBe(false);
+  });
+
+  /**
+   * `affects` is checked mechanically by the diff-stability harness, which can only look for surfaces it
+   * knows how to find. A free-text value passes that check by being unfalsifiable, so the vocabulary is
+   * closed to the file roles plus `files` (SC-005).
+   */
+  it("rejects an affected surface that is not a file role or `files`", () => {
+    expect(OptionSchema.safeParse({ ...enumOption, affects: ["behaviour"] }).success).toBe(false);
+  });
+
+  it("rejects an option that affects nothing, which would be a documented no-op", () => {
+    expect(OptionSchema.safeParse({ ...enumOption, affects: [] }).success).toBe(false);
+  });
+
+  it("accepts several surfaces, since an option that reshapes code reshapes its tests too", () => {
+    expect(
+      OptionSchema.safeParse({ ...enumOption, affects: ["core", "example", "test"] }).success,
+    ).toBe(true);
   });
 });
 

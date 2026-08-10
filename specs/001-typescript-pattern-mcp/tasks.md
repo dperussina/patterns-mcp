@@ -206,7 +206,17 @@ import from that location.
 ### Tests for User Story 3
 
 - [ ] T053 [P] [US3] Reuse-economy test in `test/contract/reuse.test.ts` asserting a binding-only response is at most 20% of the full response's content (SC-004)
-- [ ] T054 [P] [US3] Diff-stability harness in `test/determinism/diff-stability.test.ts` asserting, for every option of every pattern, that changes stay confined to the surfaces named in that option's `affects` field — a reflowed unrelated function fails even though it still compiles (SC-005)
+- [x] T054 [P] [US3] Diff-stability harness in `test/determinism/diff-stability.test.ts` asserting, for every option of every pattern, that changes stay confined to the surfaces named in that option's `affects` field — a reflowed unrelated function fails even though it still compiles (SC-005). Building it forced two decisions and immediately found eleven understated declarations:
+
+  **`affects` is now a closed vocabulary.** It was `z.array(z.string())`, which cannot be checked: an option declaring `affects: ["behaviour"]` names nothing the harness can look for, so the claim passes by being unfalsifiable. The values are now the file roles plus `files`, which is the vocabulary `emitScope` and ordering already use, so it is not a new concept for a reader — and `data/schema.json` carries the enum too, so a catalog authored against the JSON Schema is checked before it reaches Zod.
+
+  **Role granularity is not enough on its own, so the blast radius is recorded as well.** A pattern's core is one file, so an option licensed to change anything in the core is licensed to change everything in it, and "changing `jitter` rewrote the whole retry loop" would pass the role check. The task's own wording — "a reflowed unrelated function fails even though it still compiles" — needs a finer grain than a file. `affects` cannot supply it, because declaration names depend on the identifiers a caller asks for (`OrderRetryPolicy`, not `RetryPolicy`), so a pattern cannot state them in advance. So the harness parses both bundles, reduces each to a map from top-level declaration to its text, and stores the set an option moves as a snapshot — the golden-bundle bargain applied to option deltas. Statements with no declared name are labelled by their call title, `describe("the delay schedule")`, because an index-based label renumbers every suite below an insertion and reports code the option never touched.
+
+  **What it found.** Every option that reshapes a core also reshapes the tests exercising it, and no pattern said so: eleven violations across all three patterns. `retry`'s `cancellation` also rewrites the example. `includeTests` was declared `["files"]`, which is true and incomplete — removing the test file changes the `test` surface as well, and a role is credited for a file appearing or vanishing precisely so that a pattern cannot evade the role claim by renaming. All eleven declarations are now the truth rather than the intention.
+
+  **Limitation, deliberately.** Only single-option deviations from the default are swept, matching FR-010's own wording. An option pair that interacts only away from the defaults is not covered; the golden suite stores the full cartesian product, and doing the same here would multiply an already-multiplicative cost.
+
+  **Interaction with T057.** The provenance header carries the options hash, so *every* option changes it. Left in, the harness would report every option as affecting every file and would have nothing to say about the code — hence `withoutHeader`, and hence its own test that it strips only a header this generator wrote rather than any leading block comment.
 
 ### Implementation for User Story 3
 
@@ -214,7 +224,15 @@ import from that location.
 - [ ] T056 [US3] Implement the `coreModule` requirement and import rewriting for `binding-only` in `src/engine/generate/imports.ts` (FR-018)
 - [ ] T104 [US3] Implement stub synthesis for binding-only verification in `src/engine/verify/synthesize-core.ts` per research.md §11: regenerate the core into the verification file system at the `coreModule` specifier, typecheck the binding against it, then discard it from the emitted bundle. Requires separating rendering from emission in the pipeline, and `contentHash` must cover emitted files only
 - [ ] T105 [US3] Refuse a binding-only request whose regenerated core does not match what the pattern expects, explaining what was expected rather than returning code that cannot compile (spec edge case)
-- [ ] T057 [US3] Implement provenance header emission in `src/engine/provenance/header.ts` carrying pattern identity and `optionsHash` only — embedding a generator version would rewrite every generated file on every release and destroy diff-stability (FR-020, FR-021)
+- [x] T057 [US3] Implement provenance header emission in `src/engine/provenance/header.ts` carrying pattern identity and `optionsHash` only — embedding a generator version would rewrite every generated file on every release and destroy diff-stability (FR-020, FR-021). Emitted between rendering and formatting, which is what makes the verified bytes the returned bytes: a header prepended after verification would mean returning a file in a form nothing had checked. Three things the format decided:
+
+  **Tag per line, not prose.** The format step wraps comments to the caller's `printWidth` (T114), so a header written as a sentence is re-wrapped at a narrow width and its fields run together — machine-readable until someone asks for 60 columns. Every line is a `@tag`, which the wrapper treats as its own paragraph, and a test pins the fields to separate lines at a width that forces a rewrap.
+
+  **`@generated` first.** A recognised convention rather than a private one, so review tools and diff viewers get the signal without being taught this format.
+
+  **In the contents, not beside them.** data-model.md lists `provenance` as a field of `File`; it is modelled as the header the contents carry rather than a second copy alongside them, because the point of provenance is surviving being pasted into a repository — which a response field does not do — and two copies of one fact can disagree.
+
+  Also replaced the placeholder correlation identifier on `VerificationError`, which was `pattern:optionCount`, with the request's own options hash. An operator reading it off a caller's error can now regenerate exactly the bundle that failed.
 - [ ] T058 [US3] Refuse `binding-only` for patterns whose catalog entry has `supportsSplit: false`, explaining what that pattern does support (US3 acceptance scenario 3)
 - [ ] T059 [US3] Author the `repository` pattern with a genuine core/binding split in `src/engine/patterns/repository/`, plus its catalog entry in `data/patterns/data-access.json`
 - [ ] T060 [P] [US3] Add golden snapshots covering `full`, `core-only`, and `binding-only` for every split-capable pattern
@@ -396,6 +414,16 @@ T088 — authoring the remaining patterns to reach 20 — sits in Polish deliber
 is the largest single body of work and the most parallelizable, but it is worth almost nothing until
 the verification harness can prove each new pattern compiles and passes its own tests. Authoring first
 would mean discovering systemic template problems 20 times instead of 3.
+
+**Amended after US2: T088 runs immediately after US3, before US4–US6.** The original placement was
+right about the reason and wrong about the boundary. What made early authoring expensive was that each
+of the first three patterns exposed a defect that would otherwise have been copied into every pattern
+written before it — unresolvable data files in the packaged build (T041), a sandbox with no
+`setTimeout` or `AbortSignal` declarations (T113), templates unable to know their own output column
+(T114), and the base-option set every catalog entry declares (T112). All four are now fixed, and US3
+is the last change to *what a pattern module must provide*: after the core/binding split and the
+diff-stability harness, authoring is additive. US4–US6 are adapter and convention work that does not
+alter a pattern's shape, so authoring behind them buys nothing and delays the thing SC-013 measures.
 
 ---
 

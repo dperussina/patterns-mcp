@@ -1,7 +1,9 @@
 /**
- * The pipeline: resolve, render, format, verify, assemble.
+ * The pipeline: resolve, render, attribute, format, verify, assemble.
  *
- * The order is not arbitrary. Formatting happens *before* verification so that what typechecks is the
+ * The order is not arbitrary. Provenance headers go on before formatting and therefore before
+ * verification, so the bytes that typecheck are the bytes the caller receives — a header added afterwards
+ * would mean returning a file in a form nothing had checked. Formatting happens *before* verification so that what typechecks is the
  * bytes the caller receives, rather than a pre-formatted draft that Prettier then rewrites. And
  * assembly happens last, so ordering and scope filtering apply to files that have already been proven
  * to compile together — filtering first would let a `core-only` bundle be verified without the binding
@@ -25,6 +27,8 @@ import { circuitBreakerPattern } from "../patterns/circuit-breaker/index.js";
 import { resultPattern } from "../patterns/result/index.js";
 import { retryPattern } from "../patterns/retry/index.js";
 import type { PatternModule, RenderedFile } from "../patterns/types.js";
+import { withProvenance } from "../provenance/header.js";
+import { hashResolvedRequest } from "../provenance/hash.js";
 import { createVerifier, compilerOptionsFor } from "../verify/index.js";
 import type { Verifier } from "../verify/index.js";
 import { buildVerificationRecord } from "../verify/record.js";
@@ -82,8 +86,15 @@ export async function generate(request: GenerateRequest): Promise<GenerateResult
     variant: resolved.variant,
   });
 
+  const attributed = withProvenance(rendered, {
+    pattern: pattern.name,
+    options: resolved.options,
+    identifiers: resolved.identifiers,
+    variant: resolved.variant,
+  });
+
   const formatted = await Promise.all(
-    rendered.map(async (file) => ({
+    attributed.map(async (file) => ({
       ...file,
       contents: await formatSource(file.contents, resolved.conventions.prettierConfig),
     })),
@@ -248,8 +259,15 @@ function moduleFor(name: string): PatternModule {
   return module;
 }
 
+/**
+ * The correlation identifier a verification failure is reported under.
+ *
+ * The request's own options hash, which makes it reproducible: an operator reading it off a caller's
+ * error can regenerate exactly the bundle that failed. An arbitrary identifier would be unique and
+ * useless, and a counter would differ between processes handling the same request.
+ */
 function hashOf(resolved: ResolvedRequest): string {
-  return `${resolved.pattern}:${String(Object.keys(resolved.options).length)}`;
+  return hashResolvedRequest(resolved);
 }
 
 let namePromise: Promise<NameTable> | undefined;
