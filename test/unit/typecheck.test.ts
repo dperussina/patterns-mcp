@@ -4,6 +4,9 @@
  * import of a perfectly good bundle, which reads like a generation bug.
  */
 
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+
 import { afterAll, describe, expect, it } from "vitest";
 
 import { DEFAULT_CONVENTIONS } from "../../src/engine/options/conventions.js";
@@ -243,6 +246,85 @@ describe("warm reuse", () => {
     }
   });
 });
+
+/**
+ * The compiler is replaced once it has served its quota, because the project it keeps open keeps every
+ * file tree it has been shown — measured at ~3MB a check with no plateau, which filled a CI runner and
+ * would eventually do the same to a long-running server.
+ *
+ * What is asserted here is that replacing it is invisible: a correct verdict either side of the boundary
+ * and across it, and no leaked subprocess. The bound itself is measured by `scripts/measure-retention.ts`,
+ * since a test cannot usefully assert a number that depends on the compiler's own internals.
+ */
+describe("a compiler replaced once it has served its quota", () => {
+  it("keeps answering correctly across the boundary", async () => {
+    // Two, so the run crosses several boundaries in a handful of checks rather than a hundred.
+    const recycling = new Typechecker({ checksPerCompiler: 2 });
+    try {
+      const verdicts: boolean[] = [];
+      // Sequential, deliberately: the replacement happens at the start of a turn, so overlapping calls
+      // would not exercise the same path. Alternating clean and broken means a stale project serving a
+      // previous bundle's files shows up as a wrong verdict rather than as an error.
+      for (const index of Array.from({ length: 7 }, (_, at) => at)) {
+        const files = index % 2 === 0 ? clean(`step${String(index)}`) : broken(`step${String(index)}`);
+        const outcome = await recycling.check(files, conventions());
+        verdicts.push(outcome.diagnostics.length > 0);
+      }
+
+      expect(verdicts).toEqual([false, true, false, true, false, true, false]);
+    } finally {
+      await recycling.dispose();
+    }
+  });
+
+  it("really does replace it, one at a time", async () => {
+    // Which compiler served each check, watched from outside because the handle is private. A quota of one
+    // means every check after the first is served by a new subprocess, so the identities say whether the
+    // replacement happened at all — the verdicts above would read the same either way, and so would a
+    // count. Deleting the recycling fails here and nowhere else.
+    // Everything already running belongs to this file's shared `checker`, which lives for the whole run
+    // in the same worker; only what appears on top of it is ours.
+    const theirs = new Set(await ownCompilers());
+    const ours = async (): Promise<readonly number[]> =>
+      (await ownCompilers()).filter((pid) => !theirs.has(pid));
+
+    const served: number[] = [];
+    const recycling = new Typechecker({ checksPerCompiler: 1 });
+    try {
+      for (const index of [0, 1, 2, 3]) {
+        await recycling.check(clean(`only${String(index)}`), conventions());
+        served.push(...(await ours()));
+      }
+    } finally {
+      await recycling.dispose();
+    }
+
+    // Four checks, four compilers, and never two at once. The second half is the load-bearing one: were
+    // the disposal not awaited, the outgoing subprocess would overlap the incoming one and the peak would
+    // scale with the quota, which is the pressure being relieved rather than a tidiness point.
+    expect(new Set(served).size).toBe(4);
+    expect(served).toHaveLength(4);
+    // Nothing outlives the instance that owns it.
+    expect(await ours()).toEqual([]);
+  });
+});
+
+/**
+ * The process ids of the compiler subprocesses this worker owns.
+ *
+ * Scoped to our own children on purpose: the machine is running other test files that hold compilers of
+ * their own, so a machine-wide reading would be measuring the neighbours' lifecycles as much as ours and
+ * would move whenever one of them happened to start or finish inside our window.
+ */
+async function ownCompilers(): Promise<readonly number[]> {
+  const { stdout } = await promisify(execFile)("ps", ["-eo", "pid=,ppid=,args="]);
+  return stdout
+    .split("\n")
+    .map((line) => line.trim().split(/\s+/u))
+    .filter(([, parent]) => Number(parent) === process.pid)
+    .filter((columns) => columns.includes("--api"))
+    .map(([pid]) => Number(pid));
+}
 
 const clean = (name: string): BundleFile[] => [
   { path: "index.ts", contents: `export const ${name} = "${name}" as const;\n` },

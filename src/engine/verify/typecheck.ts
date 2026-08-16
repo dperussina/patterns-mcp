@@ -53,6 +53,29 @@ const DEFAULT_TIMEOUT_MS = 60_000;
 /** How long a failed compiler is left alone before being closed. See `#abandon`. */
 const ABANDON_GRACE_MS = 1_000;
 
+/**
+ * Checks one compiler serves before it is replaced.
+ *
+ * The warm compiler is the reason a check costs ~13ms instead of ~130ms, and keeping the project open is
+ * how it stays warm — but the project keeps what it has been shown, and it is shown a different file tree
+ * every time. Measured over 160 generations in one process, the subprocess grew from 71MB to 563MB with no
+ * sign of levelling off, about 3MB a check, while our own heap plateaued. Nothing here was leaking; the
+ * cost was simply unbounded, which is a different problem with the same ending.
+ *
+ * It ended two ways. In CI, both Ubuntu jobs filled sixteen gigabytes part-way through the suite and the
+ * runner was reclaimed mid-test with no assertion having failed — capping the worker pool changed nothing,
+ * which is what said the cost was retained rather than concurrent. The other way is the one that matters:
+ * **an MCP server is long-lived, so a per-request cost that is never released is a server whose lifetime is
+ * set by its traffic.** The suite found it first only because it generates a few hundred bundles in a row.
+ *
+ * The number is read off the same measurement rather than chosen: a quota of two hundred peaked the
+ * subprocess at ~700MB before each reset, a hundred peaks it near ~390MB, and either is a sawtooth instead
+ * of a ramp. A hundred, because the headroom on a hosted runner is what has to be fitted into and the
+ * saving is nearly free — one ~130ms cold start per hundred checks is ~1.3ms amortised against a ~13ms
+ * check, which is inside the noise of the measurement it protects.
+ */
+const CHECKS_PER_COMPILER = 100;
+
 export { compilerVersion };
 
 export interface BundleFile {
@@ -165,10 +188,16 @@ export class Typechecker implements Verifier {
    * covers them: under a parallel test run the grace period regularly outlives the process itself.
    */
   readonly #abandoned = new Set<API>();
+  /** Checks served by the compiler currently held. Reset when one is replaced. See `#recycle`. */
+  #servedByCurrent = 0;
+  readonly #checksPerCompiler: number;
 
-  constructor(options: { readonly timeoutMs?: number } = {}) {
+  constructor(
+    options: { readonly timeoutMs?: number; readonly checksPerCompiler?: number } = {},
+  ) {
     this.#vfs = createMutableVerificationFileSystem();
     this.#timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    this.#checksPerCompiler = options.checksPerCompiler ?? CHECKS_PER_COMPILER;
   }
 
   /** Pays the ~130ms cold cost up front, so the first real request does not. */
@@ -211,6 +240,7 @@ export class Typechecker implements Verifier {
   async dispose(): Promise<void> {
     const api = this.#api;
     this.#api = undefined;
+    this.#servedByCurrent = 0;
 
     // Abandoned instances too, or a compiler that failed mid-run outlives the disposal that was meant to
     // clean up after it — the case that still left one process behind once the live one was handled.
@@ -232,6 +262,9 @@ export class Typechecker implements Verifier {
   #abandon(): void {
     const api = this.#api;
     this.#api = undefined;
+    // The replacement starts with a clean sheet, or a compiler abandoned near the quota would be recycled
+    // within a check or two of being created — paying a cold start to bound something that holds nothing.
+    this.#servedByCurrent = 0;
     if (api === undefined) return;
 
     this.#abandoned.add(api);
@@ -256,12 +289,35 @@ export class Typechecker implements Verifier {
     files: readonly BundleFile[],
     compilerOptions: Record<string, unknown>,
   ): Promise<readonly VerificationDiagnostic[]> {
+    await this.#recycle();
+
     try {
       return await this.#withDeadline(this.#checkOnce(files, compilerOptions));
     } catch {
       this.#abandon();
       return await this.#withDeadline(this.#checkOnce(files, compilerOptions));
     }
+  }
+
+  /**
+   * Replaces the compiler once it has served its quota, so what it retains stays bounded.
+   *
+   * Closed rather than abandoned, and awaited: `#abandon` exists for a compiler that failed us, where
+   * ending the pipe would strand a request already queued on it. Here nothing is in flight — checks are
+   * serialised through `#exclusive` and this runs at the start of a turn — so the reason for the grace
+   * period does not apply, and waiting keeps the old subprocess from overlapping the new one, which is the
+   * whole point when the pressure being relieved is memory.
+   */
+  async #recycle(): Promise<void> {
+    const api = this.#api;
+    if (api === undefined || this.#servedByCurrent < this.#checksPerCompiler) {
+      this.#servedByCurrent += 1;
+      return;
+    }
+
+    this.#api = undefined;
+    this.#servedByCurrent = 1;
+    await release(api);
   }
 
   async #withDeadline<T>(work: Promise<T>): Promise<T> {
