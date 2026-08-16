@@ -67,8 +67,20 @@ export interface TestRunRequest {
   readonly timeoutMs?: number;
 }
 
-/** Generous for tests that should finish in milliseconds; present so a runaway cannot hang a request. */
-const DEFAULT_TIMEOUT_MS = 5_000;
+/**
+ * Present so a runaway cannot hang a request, and set for the one case it cannot tell apart.
+ *
+ * A generated suite that finishes in milliseconds and one that never finishes look identical from here
+ * until the clock decides, and the two mean opposite things: an infinite loop is a defect in the pattern
+ * and worth reporting as a verification failure, while a suite still waiting on a scheduler is not a
+ * defect in anything. Because a timeout is reported as the former, the number has to be large enough that
+ * the latter cannot reach it — the compiler's sibling deadline was set on an idle-machine assumption and
+ * a healthy check exceeded it on a two-core CI runner, which is the same mistake one layer down.
+ *
+ * Thirty seconds, then: past anything a small suite can legitimately take on hardware we do not control,
+ * and still short enough that a loop is caught rather than waited out.
+ */
+const DEFAULT_TIMEOUT_MS = 30_000;
 
 export async function runGeneratedTests(request: TestRunRequest): Promise<TestRunResult> {
   if (request.testPaths.length === 0) return { outcome: "skipped", detail: undefined };

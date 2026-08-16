@@ -187,10 +187,10 @@ function requireCoreModule(resolved: ReadonlyMap<string, OptionValue>): void {
 
   const coreModule = resolved.get("coreModule");
   if (typeof coreModule !== "string" || coreModule.trim() === "") {
-    throw new MissingRequiredOptionError(
-      "coreModule",
-      'when emitScope is "binding-only"',
-    );
+    throw new MissingRequiredOptionError("coreModule", 'when emitScope is "binding-only"', [
+      "Set it to the module the machinery was written to, as the binding imports from it",
+      'or request emitScope "full" for a bundle that carries its own machinery',
+    ]);
   }
 }
 

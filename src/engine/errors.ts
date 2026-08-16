@@ -205,11 +205,22 @@ export class MissingRequiredOptionError extends CorrectableError {
    * change. Our own literal text, never a caller value, so it is safe to surface verbatim (FR-009).
    */
   readonly because: string;
+  /**
+   * The ways out, as imperative clauses — `supply it`, `or request emitScope "full"`.
+   *
+   * Naming the option and the condition says what is wrong and leaves the caller to work out the move,
+   * and there are always two: satisfy the requirement, or withdraw the setting that created it. The
+   * second one is the one worth stating, because a caller who reached `binding-only` by copying an
+   * example may not want the split at all, and without it the obvious next attempt is to guess a path.
+   * Our own literal text, never a caller value, so it is surfaced verbatim (FR-009).
+   */
+  readonly resolutions: readonly string[];
 
-  constructor(option: string, because: string) {
-    super(`Option "${option}" is required ${because}.`);
+  constructor(option: string, because: string, resolutions: readonly string[]) {
+    super(`Option "${option}" is required ${because}. ${resolutions.join(", ")}.`);
     this.option = option;
     this.because = because;
+    this.resolutions = resolutions;
   }
 }
 

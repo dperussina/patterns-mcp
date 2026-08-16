@@ -25,10 +25,9 @@ describe("the correctable / internal split", () => {
       'entityName "class" is reserved',
       "That name is reserved.",
     ),
-    new MissingRequiredOptionError(
-      "coreModule",
-      'when emitScope is "binding-only"',
-    ),
+    new MissingRequiredOptionError("coreModule", 'when emitScope is "binding-only"', [
+      "Set it to the module the machinery was written to",
+    ]),
   ];
 
   it.each(correctable.map((e) => [e.name, e] as const))(
@@ -182,13 +181,21 @@ describe("messages let a caller fix the call without another round trip", () => 
     expect(error.message).toContain("is reserved");
   });
 
-  it("says why a required option is required", () => {
-    expect(
-      new MissingRequiredOptionError(
-        "coreModule",
-        'when emitScope is "binding-only"',
-      ).message,
-    ).toBe('Option "coreModule" is required when emitScope is "binding-only".');
+  it("says why a required option is required, and both ways out of it", () => {
+    const error = new MissingRequiredOptionError(
+      "coreModule",
+      'when emitScope is "binding-only"',
+      ["Set it to the module the machinery was written to", 'or request emitScope "full"'],
+    );
+
+    expect(error.because).toBe('when emitScope is "binding-only"');
+    // Satisfying the requirement and withdrawing the setting that created it are both answers, and the
+    // second is the one a caller who copied `binding-only` from an example actually wants. Without it
+    // the sentence said what was wrong and left the next move to a guess.
+    expect(error.message).toBe(
+      'Option "coreModule" is required when emitScope is "binding-only". ' +
+        'Set it to the module the machinery was written to, or request emitScope "full".',
+    );
   });
 });
 

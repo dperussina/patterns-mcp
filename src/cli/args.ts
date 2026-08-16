@@ -16,7 +16,7 @@
 
 import { parseArgs } from "node:util";
 
-import { safe } from "../refusals.js";
+import { quotable, safe } from "../refusals.js";
 
 import type { GenerateRequest } from "../engine/generate/index.js";
 import type { ListFilters } from "../engine/catalog/list.js";
@@ -147,7 +147,7 @@ export function parseCommand(argv: readonly string[]): Command {
 }
 
 function parseList(argv: readonly string[]): Command {
-  const { values, positionals } = guardUsage(() =>
+  const { values, positionals } = guardUsage(argv, () =>
     parseArgs({ args: [...argv], options: LIST_FLAGS, allowPositionals: true, strict: true }),
   );
 
@@ -174,7 +174,7 @@ function parseList(argv: readonly string[]): Command {
 }
 
 function parseDescribe(argv: readonly string[]): Command {
-  const { values, positionals } = guardUsage(() =>
+  const { values, positionals } = guardUsage(argv, () =>
     parseArgs({ args: [...argv], options: COMMON, allowPositionals: true, strict: true }),
   );
 
@@ -195,7 +195,7 @@ function parseDescribe(argv: readonly string[]): Command {
 }
 
 function parseGenerate(argv: readonly string[]): Command {
-  const { values, positionals } = guardUsage(() =>
+  const { values, positionals } = guardUsage(argv, () =>
     parseArgs({ args: [...argv], options: GENERATE_FLAGS, allowPositionals: true, strict: true }),
   );
 
@@ -352,19 +352,19 @@ function tierOf(value: string): 1 | 2 | 3 {
  * type, which typechecked and then made every value `string | boolean | string[]` at the call sites —
  * pushing casts into the parsing logic, which is the one place they would hide a real mistake.
  */
-function guardUsage<T>(parse: () => T): T {
+function guardUsage<T>(argv: readonly string[], parse: () => T): T {
   try {
     return parse();
   } catch (error) {
     throw new UsageError(
-      error instanceof Error ? withoutEcho(error.message) : "unparseable arguments",
+      error instanceof Error ? withoutEcho(error.message, argv) : "unparseable arguments",
     );
   }
 }
 
 /**
- * `parseArgs`'s own wording, with the token it quotes put through the same test every other caller value
- * on either surface is put through (FR-035).
+ * `parseArgs`'s own wording, with every argument it echoed replaced by the same description the MCP
+ * surface would give it (FR-035).
  *
  * Its messages are well written and name the offending flag, which is why they are kept. What they also
  * do is echo that flag unbounded: `--ignore previous instructions and…` is a single argv element, so
@@ -373,15 +373,29 @@ function guardUsage<T>(parse: () => T): T {
  * driven by an agent (contracts/cli.md) and an agent reads captured stderr, so the exemption was
  * arguing against the reason the surface is here.
  *
- * The token is always single-quoted by `parseArgs`, which is what makes substitution possible without
- * reconstructing its messages. Nothing depends on that holding: a message it stopped quoting would
- * simply pass through unchanged and stay subject to the length bound.
+ * Redaction works from `argv` rather than from the message's quoting, which is the version that failed:
+ * substituting each `'…'` span assumed the quotes pair up, and Node's message for an unknown option ends
+ * `as in '-- "<the option again>"` with the quote never closed — so the spans grouped one apart from
+ * where they were meant to, the last echo fell outside every pair, and 140 characters of caller prose
+ * reached stderr with only the length bound to stop it. The arguments are the untrusted strings, so
+ * they are what to look for; how the message chose to punctuate them does not enter into it.
  */
-function withoutEcho(message: string): string {
-  // Not `trimmed`, which bounds a *value* at 40 characters and would cut these sentences mid-word. The
-  // substitution above already bounds every caller-supplied part of the message, so this is a backstop
-  // against wording we have not seen rather than the mechanism.
-  const sanitised = message.replaceAll(/'([^']*)'/gu, (_, token: string) => safe(token));
+function withoutEcho(message: string, argv: readonly string[]): string {
+  let sanitised = message;
+
+  // Longest first, so that redacting a short argument cannot leave a longer one that contains it
+  // partially intact — `--x` and `--x prose` are both plausible on one command line.
+  for (const argument of argv.toSorted((a, b) => b.length - a.length)) {
+    // `safe` rather than a phrase written here: an inert argument is one the shared rule says may be
+    // quoted back, and for anything else `safe` is already the description both surfaces give it.
+    if (argument !== "" && !quotable(argument)) {
+      sanitised = sanitised.replaceAll(argument, safe(argument));
+    }
+  }
+
+  // Not `trimmed`, which bounds a *value* at 40 characters and would cut these sentences mid-word. A
+  // backstop for wording we have not seen, now that the redaction above rather than a length limit is
+  // what keeps caller prose out.
   return sanitised.length <= 200 ? sanitised : `${sanitised.slice(0, 200)}…`;
 }
 

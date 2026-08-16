@@ -80,7 +80,14 @@ jobs:
       - name: the server refuses to start, and says why
         run: |
           set -uo pipefail
-          output=$(node dist/mcp/transports/stdio-bin.mjs 2>&1); status=$?
+          # Deliberately not `-e`, which the default shell (`bash -e {0}`) has already set: this step
+          # runs a command *expecting* it to fail, and under `-e` the assignment below ends the step
+          # before `status` is read. That inverted the check — it reported failure precisely when the
+          # refusal worked, and would have reported success had the server started.
+          set +e
+          output=$(node dist/mcp/transports/stdio-bin.mjs 2>&1)
+          status=$?
+          set -e
           echo "$output"
           if [ "$status" -eq 0 ]; then
             echo "::error::the server started on $(node --version), where generated tests cannot be sandboxed"

@@ -38,10 +38,13 @@ checks, never in advance, because a gate that is red for structural reasons cann
 | `lint` | The engine/MCP import boundary (Principle X) and the determinism bans | T003, extended by T024 |
 | `typecheck` | Our own sources under `strict` | scaffold |
 | `schema:check` | That `data/schema.json` still matches the Zod schema it is derived from | T009 |
-| `test` | Five projects: unit, contract, golden, determinism, parity | T005 |
-| `build` | Declaration emit, which can fail where `tsc --noEmit` passes | scaffold |
 | `catalog:check` | Schema conformance, provenance, licence terms, and the `{category}.json` file-name convention | T011 |
-| conformance | The frozen `2026-07-28` requirement set, both transports | T083 |
+| `test` | Six projects: unit, contract, golden, determinism, parity, conformance | T005 |
+| `build` | Declaration emit, which can fail where `tsc --noEmit` passes | scaffold |
+| `smoke` | The three things the manifest publishes: the server binary, the CLI binary, and the entry under `require` | T152 |
+
+Protocol conformance is a suite inside `test` rather than a stage of its own — see Scenario 9 for why the
+official runner is not one of these rows.
 
 ---
 
@@ -141,29 +144,37 @@ options — verification ran under their configuration, not ours.
 **Proves**: Principle X, FR-029, SC-010.
 
 ```bash
-pnpm test parity
+pnpm test --project parity
 ```
 
 **Expect**: for a matrix of requests, the CLI's `--json` output and the MCP `structuredContent` are
-byte-identical. Any divergence means generation logic leaked into an adapter.
+byte-identical. Any divergence means generation logic leaked into an adapter. Refusals are compared too,
+with one licensed difference: each surface names the command a caller can actually run.
 
 ## Scenario 9 — Protocol conformance
 
 **Proves**: FR-030, FR-031, SC-011.
 
 ```bash
-pnpm conformance:stdio
-pnpm conformance:http
+pnpm test --project contract
 ```
 
-**Expect**: the frozen `2026-07-28` requirement set passes on both transports. Two checks deserve
-attention beyond a green result:
+**Expect**: the `2026-07-28` requirement set is asserted against stdio, which is the only transport this
+server ships. `test/contract/revision.test.ts` exercises it at the frame level — `server/discover`, a
+`tools/call` with no handshake, `resultType` on every result, the reserved error-code ranges, and the
+methods the revision removed — alongside the older revision, on the same server, because a client that
+has not migrated is the common case. Two checks deserve attention beyond a green result:
 
 - **stdio**: `stdout` carries only well-formed protocol messages for a whole session. A stray log line
-  corrupts the stream.
-- **HTTP**: a request whose `Mcp-Method` contradicts its body is rejected with `400` and `-32020`. This
-  is currently **unverified** in the SDK and is an open item — send the mismatch deliberately and
-  observe, rather than assuming coverage.
+  corrupts the stream, and one `console.log` left in a handler is all it takes.
+- Every `_meta` key the server mints sits under a prefix we own, since the `io.modelcontextprotocol/`
+  namespace is reserved for keys the specification defines (FR-054).
+
+The official `@modelcontextprotocol/conformance` runner is **not** used, and this is the reason rather
+than an omission: it reaches an implementation over `--url`, so it has no stdio target. Standing up the
+SDK's HTTP transport to satisfy it would test a transport we do not serve, and most of what it then
+measured would be header and subscription requirements the SDK answers on our behalf. Revisit when the
+runner gains a stdio target, or when FR-037's remote transport exists to be tested.
 
 ## Scenario 10 — Discovery is enough on its own
 
@@ -202,3 +213,26 @@ pnpm test catalog
 **Expect**: every entry validates against `data/schema.json`; no entry carries NonCommercial or
 NoDerivatives terms; every `relatedPatterns` reference resolves; every entry records provenance; and at
 least 20 tier-1 patterns are present.
+
+---
+
+## Last run
+
+Every scenario above, run by hand on 2026-08-15 (Node 22.20, macOS) rather than inferred from the suites.
+Two of them had never been run as written, and that is what the exercise was for: Scenario 8's command
+also matched an unrelated contract file, and Scenario 9's two commands did not exist at all.
+
+| # | Result |
+|---|---|
+| 1 | `kind: "bundle"`, 3 files, `diagnosticCount: 0`, `testOutcome: "passed"`, `compilerVersion: "7.0.2"` |
+| 2 | Identical across two processes |
+| 3 | Changes confined to what `cancellation` declares: the `signal` parameter and the delay it threads through. The unrelated exports are byte-identical |
+| 4 | Binding is 11.8% of the full response, one `binding` file, no `core` role, imports the supplied module |
+| 5 | Exit `1`. **Fixed during the run**: the message named `coreModule` and the condition but never said what to do, so it now carries both ways out — set it, or ask for `full` |
+| 6 | Exit `0`, `kind: "advisory"`, names the module-export alternative, no class |
+| 7 | `resolvedConventions` echoes all seven fields including defaults; `verification.compilerOptions` is the caller's (`strict: false`, `module: "commonjs"`); specifiers are extensionless and single-quoted per the fixture |
+| 8 | 23 comparisons pass. **Command corrected**: `pnpm test parity` is a filename filter that also ran `test/contract/catalog-parity.test.ts` |
+| 9 | 2026-07-28 asserted against stdio. **Commands corrected**: `conformance:stdio` and `conformance:http` never existed, and the runner has no stdio target — see above |
+| 10 | Six async-resilience entries; `describe` gives every option its values, default and description, and discloses reserved names and network reach where a pattern has them |
+| 11 | 55 budget assertions pass |
+| 12 | 70 catalog assertions pass across four files |

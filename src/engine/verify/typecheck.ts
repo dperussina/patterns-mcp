@@ -33,10 +33,22 @@ const ROOT = "/verify";
 const TSCONFIG_PATH = `${ROOT}/tsconfig.json`;
 
 /**
- * Far above any legitimate check — ~130ms cold, ~13ms warm — and there only so a wedged compiler
- * cannot hold a request open forever. A dead subprocess does not always reject the pending request.
+ * A liveness bound, not a performance budget: it exists only so that a wedged compiler cannot hold a
+ * request open forever, because a dead subprocess does not always reject the request in flight.
+ *
+ * It was 10s, on the reasoning that a check costs ~130ms cold and ~13ms warm so ten seconds could only
+ * mean a dead one. That reasoning holds on an idle machine and not on a shared two-core CI runner, where
+ * one branch of the conventions suite exceeded it twice while the compiler was working normally — the
+ * deadline measures wall-clock, and wall-clock on a saturated host says nothing about whether the
+ * subprocess is alive. Firing then makes it worse rather than better: `#check` abandons the compiler and
+ * starts another, so a machine that was merely busy acquires a second compiler, loses the warm project,
+ * and pays for the check twice.
+ *
+ * Sixty seconds is chosen for what has to be true of it — longer than any check a live compiler can take
+ * on hardware we do not control — rather than as a limit anything is expected to approach. A hang is
+ * still bounded, which is the whole job.
  */
-const DEFAULT_TIMEOUT_MS = 10_000;
+const DEFAULT_TIMEOUT_MS = 60_000;
 
 /** How long a failed compiler is left alone before being closed. See `#abandon`. */
 const ABANDON_GRACE_MS = 1_000;

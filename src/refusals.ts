@@ -123,7 +123,10 @@ export function messageFor(error: EngineError, vocabulary: Vocabulary): string {
 
     case "missing_required_option": {
       const it = error as MissingRequiredOptionError;
-      return `Option "${it.option}" is required ${it.because}.`;
+      // Both clauses, not just the first: the requirement and the way to withdraw it are equally
+      // actionable, and a caller shown only the requirement guesses a path.
+      const required = `Option "${it.option}" is required ${it.because}.`;
+      return it.resolutions.length === 0 ? required : `${required} ${list(it.resolutions, "")}.`;
     }
 
     case "split_unsupported": {
