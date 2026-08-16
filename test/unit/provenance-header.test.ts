@@ -10,9 +10,14 @@
 import { describe, expect, it } from "vitest";
 
 import { formatSource } from "../../src/engine/format/prettier.js";
-import { generate } from "../../src/engine/generate/index.js";
+import { generateBundle } from "../bundle.js";
 import { optionsHash } from "../../src/engine/provenance/hash.js";
-import { renderHeader, withProvenance, withoutHeader } from "../../src/engine/provenance/header.js";
+import {
+  headerOf,
+  renderHeader,
+  withProvenance,
+  withoutHeader,
+} from "../../src/engine/provenance/header.js";
 
 const request = {
   pattern: "result",
@@ -84,9 +89,59 @@ describe("withProvenance", () => {
       { path: "a-example.ts", contents: "export const c = 3;\n", role: "example" as const },
     ];
 
-    for (const file of withProvenance(files, request)) {
-      expect(file.contents.startsWith(renderHeader({ pattern: "result", optionsHash: optionsHash(request) }))).toBe(true);
+    const headed = withProvenance(files, request);
+
+    // Compared to each other rather than to a hash recomputed here: what this case is about is that a role
+    // does not change the attribution, and recomputing the hash would restate the rule under test.
+    for (const file of headed) {
+      expect(headerOf(file.contents), `${file.path} is attributed for its role`).toBe(
+        headerOf(headed[0]?.contents ?? ""),
+      );
+      expect(file.contents).toContain(" * @pattern result");
     }
+  });
+
+  /**
+   * The one place a role does change the attribution, stated where the rule lives rather than only in the
+   * conformance suite that found it. A split pattern's machinery is the half defined not to know the
+   * caller's type, and it comes back with every `full` request — so hashing the entity into it made two
+   * entities' requests disagree about a file they both install.
+   */
+  it("attributes a split pattern's machinery without the caller's type", () => {
+    const split = { ...request, options: { ...request.options, emitScope: "full" } };
+
+    const [core, binding] = withProvenance(
+      [
+        { path: "a-core.ts", contents: "export const a = 1;\n", role: "core" },
+        { path: "order-a.ts", contents: "export const b = 2;\n", role: "binding" },
+      ],
+      split,
+    );
+
+    expect(headerOf(core?.contents ?? "")).not.toBe(headerOf(binding?.contents ?? ""));
+
+    // And it is the entity that is absent, not something else: the same machinery asked for under another
+    // entity is attributed identically.
+    const other = withProvenance(
+      [{ path: "a-core.ts", contents: "export const a = 1;\n", role: "core" }],
+      { ...split, identifiers: { entity: "Invoice" } },
+    );
+
+    expect(headerOf(other[0]?.contents ?? "")).toBe(headerOf(core?.contents ?? ""));
+  });
+
+  /**
+   * And only there. Nearly every pattern names its principal module `core`, so a rule keyed on the role
+   * alone would have stripped the entity from the attribution of twenty-three patterns whose core *is* the
+   * caller's type written out — claiming two different files came from one request.
+   */
+  it("attributes an unsplit pattern's core with the caller's type", () => {
+    const core = { path: "order.ts", contents: "export const a = 1;\n", role: "core" } as const;
+
+    const [order] = withProvenance([core], request);
+    const [invoice] = withProvenance([core], { ...request, identifiers: { entity: "Invoice" } });
+
+    expect(headerOf(order?.contents ?? "")).not.toBe(headerOf(invoice?.contents ?? ""));
   });
 
   it("leaves the rendered content otherwise untouched", () => {
@@ -125,7 +180,7 @@ describe("withoutHeader", () => {
 
 describe("a generated bundle", () => {
   it("heads every file with its own request's hash", async () => {
-    const bundle = await generate({
+    const bundle = await generateBundle({
       pattern: "result",
       identifiers: { entity: "Order" },
       options: { includeTests: true, includeAsync: false, includeCollections: false },
@@ -135,7 +190,11 @@ describe("a generated bundle", () => {
       pattern: "result",
       optionsHash: optionsHash({
         pattern: "result",
-        options: bundle.resolvedOptions,
+        // `includeTests` is left out, as the header leaves it out: it decides which files exist rather
+        // than what any of them says, so a suite that exists was asked for and one that does not cannot
+        // be described. Including it meant a caller who regenerated without tests found every file they
+        // kept re-attributed, identical code under a different hash.
+        options: { ...bundle.resolvedOptions, includeTests: undefined },
         identifiers: { entity: "Order" },
         variant: undefined,
       }),
@@ -148,14 +207,38 @@ describe("a generated bundle", () => {
   });
 
   /**
+   * The two halves of that exclusion, since either alone is satisfiable by a header that says too little or
+   * too much: declining the suite must not move the attribution of a file that survives, and an option that
+   * shapes the code must.
+   */
+  it("heads a file the same whether or not tests were asked for", async () => {
+    const [withTests, without] = await Promise.all([
+      generateBundle({ pattern: "result", identifiers: { entity: "Order" }, options: { includeTests: true } }),
+      generateBundle({ pattern: "result", identifiers: { entity: "Order" }, options: { includeTests: false } }),
+    ]);
+
+    const kept = without.files.map((file) => file.path);
+    expect(kept.length, "nothing survives declining the suite, so this case tests nothing").toBeGreaterThan(
+      0,
+    );
+
+    for (const path of kept) {
+      expect(
+        headerOf(withTests.files.find((file) => file.path === path)?.contents ?? ""),
+        `${path} is attributed differently for having been asked for beside a suite`,
+      ).toBe(headerOf(without.files.find((file) => file.path === path)?.contents ?? ""));
+    }
+  });
+
+  /**
    * The hash covers the *resolved* request, so a caller who states a default explicitly gets the same
    * header as one who omits it. Anything else would make the header report how a request was phrased
    * rather than what it asked for.
    */
   it("heads identically-resolving requests identically", async () => {
     const [omitted, stated] = await Promise.all([
-      generate({ pattern: "result", identifiers: { entity: "Order" } }),
-      generate({
+      generateBundle({ pattern: "result", identifiers: { entity: "Order" } }),
+      generateBundle({
         pattern: "result",
         identifiers: { entity: "Order" },
         options: { includeAsync: true },
@@ -167,12 +250,12 @@ describe("a generated bundle", () => {
 
   it("heads materially different requests differently", async () => {
     const [withAsync, without] = await Promise.all([
-      generate({
+      generateBundle({
         pattern: "result",
         identifiers: { entity: "Order" },
         options: { includeAsync: true },
       }),
-      generate({
+      generateBundle({
         pattern: "result",
         identifiers: { entity: "Order" },
         options: { includeAsync: false },
@@ -184,7 +267,3 @@ describe("a generated bundle", () => {
     );
   });
 });
-
-function headerOf(contents: string): string {
-  return contents.slice(0, contents.length - withoutHeader(contents).length);
-}

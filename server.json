@@ -1,0 +1,23 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "com.perussina/patterns",
+  "title": "Patterns",
+  "description": "Generates TypeScript pattern implementations, typechecked and tested before they are returned.",
+  "version": "0.1.0",
+  "repository": {
+    "url": "https://github.com/dperussina/patterns-mcp",
+    "source": "github",
+    "id": "1335531746"
+  },
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "patterns-mcp",
+      "version": "0.1.0",
+      "transport": {
+        "type": "stdio"
+      }
+    }
+  ]
+}

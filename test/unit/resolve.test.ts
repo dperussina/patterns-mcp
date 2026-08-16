@@ -4,6 +4,7 @@ import {
   InvalidIdentifierError,
   InvalidOptionValueError,
   MissingRequiredOptionError,
+  UnknownIdentifierError,
   UnknownOptionError,
 } from "../../src/engine/errors.js";
 import { resolveOptions } from "../../src/engine/options/resolve.js";
@@ -23,6 +24,11 @@ function makePattern(
     intent: "Model failure as a value.",
     supportsSplit: true,
     variants: ["tagged", "nested"],
+    identifiers: [
+      { name: "entityName", description: "The type being modelled." },
+      { name: "alpha", description: "A second role, so key ordering has something to order." },
+      { name: "zebra", description: "A third, chosen to sort after the second." },
+    ],
     options: [
       {
         name: "emitScope",
@@ -261,6 +267,46 @@ describe("identifiers", () => {
       }),
     ).toThrow(InvalidIdentifierError);
   });
+
+  /**
+   * The half that used to be open. An identifier the pattern does not read was accepted, appeared
+   * nowhere in the output, and still entered the provenance hash — so two callers received
+   * byte-different headers over a name neither bundle used, and neither was told.
+   */
+  it("refuses a role the pattern does not generate around, rather than ignoring it", () => {
+    expect(() => resolveOptions(pattern, { identifiers: { entity: "Order" } })).toThrow(
+      UnknownIdentifierError,
+    );
+  });
+
+  it("lists the declared roles, so the caller can correct without another call", () => {
+    try {
+      resolveOptions(pattern, { identifiers: { entity: "Order" } });
+      throw new Error("expected a refusal");
+    } catch (error) {
+      expect(error).toBeInstanceOf(UnknownIdentifierError);
+      expect((error as UnknownIdentifierError).declared).toEqual(["alpha", "entityName", "zebra"]);
+      expect((error as UnknownIdentifierError).message).toContain("alpha, entityName, zebra");
+    }
+  });
+
+  /**
+   * A pattern taking none is not a caller who mistyped a role, so re-reading a list would not help.
+   * It is the common case — `entity` supplied out of habit to a pattern that emits one module named
+   * after itself — and the message has to say that instead of printing an empty list.
+   */
+  it("tells a caller to omit identifiers when the pattern takes none", () => {
+    const takesNone = makePattern({ identifiers: [] });
+    try {
+      resolveOptions(takesNone, { identifiers: { entity: "Order" } });
+      throw new Error("expected a refusal");
+    } catch (error) {
+      expect(error).toBeInstanceOf(UnknownIdentifierError);
+      expect((error as UnknownIdentifierError).declared).toEqual([]);
+      expect((error as UnknownIdentifierError).message).toMatch(/takes none/);
+      expect((error as UnknownIdentifierError).message).not.toMatch(/\(none\)/);
+    }
+  });
 });
 
 describe("coreModule dependency", () => {
@@ -315,6 +361,17 @@ describe("validation order", () => {
         variant: "flat",
       }),
     ).toThrow(/"emitScope"/);
+  });
+
+  /**
+   * The role before the value it holds, mirroring an option's name before its value: a caller told
+   * their key is wrong has no use for a complaint about the string they put under it, and would
+   * otherwise fix the value and be refused a second time for the same request.
+   */
+  it("reports an undeclared role before the identifier's own value", () => {
+    expect(() => resolveOptions(pattern, { identifiers: { entity: "class" } })).toThrow(
+      UnknownIdentifierError,
+    );
   });
 
   it("reports an undeclared variant before a bad identifier", () => {

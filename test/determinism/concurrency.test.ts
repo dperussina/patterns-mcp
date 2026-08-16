@@ -11,9 +11,10 @@
 import { describe, expect, it } from "vitest";
 
 import { generate } from "../../src/engine/generate/index.js";
+import { generateBundle } from "../bundle.js";
 
 async function bundleFor(entity: string, extra: Record<string, unknown> = {}): Promise<string> {
-  const result = await generate({ pattern: "result", identifiers: { entity }, ...extra });
+  const result = await generateBundle({ pattern: "result", identifiers: { entity }, ...extra });
   return JSON.stringify(result.files.map((file) => [file.path, file.contents]));
 }
 

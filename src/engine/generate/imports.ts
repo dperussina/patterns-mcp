@@ -105,17 +105,33 @@ export function stemOf(path: string): string {
  */
 const SPECIFIER = /^(?:\.{1,2}\/[\w.\-/]+|@[\w.-]+\/[\w.\-/]+|[\w.-]+(?:\/[\w.\-/]+)?)$/;
 
+/**
+ * How far a specifier may climb before it stops describing a layout and starts describing an escape.
+ *
+ * A climb is legitimate — a binding in `src/orders` reaching a core in `src/lib` writes `../lib/core.js`
+ * — and verification models it by nesting the bundle that many levels deep, so the bound exists to keep
+ * that nesting finite rather than to keep the caller honest. Four is past any real layout: a fifth level
+ * of climbing from a source directory is already outside the project.
+ */
+const MAX_CLIMB = 4;
+
 export function checkCoreModule(value: string): string {
   const trimmed = value.trim();
+  const segments = trimmed.split("/");
+  // Only a leading run of `..` is a layout. One appearing after a descent — `./a/../b` — is the same
+  // path spelled longer, and allowing it would mean normalising before placing the synthesised core.
+  const climb = segments.findIndex((segment) => segment !== "..");
 
   if (
     trimmed === "" ||
     trimmed.length > 200 ||
     !SPECIFIER.test(trimmed) ||
-    trimmed.split("/").includes("..")
+    climb > MAX_CLIMB ||
+    segments.slice(climb === -1 ? 0 : climb).includes("..")
   ) {
     throw new InvalidOptionValueError("coreModule", value, [
       'a relative specifier such as "./lib/repository-core.js"',
+      'a specifier that climbs, such as "../lib/repository-core.js"',
       'a package specifier such as "@acme/data/repository-core.js"',
     ]);
   }

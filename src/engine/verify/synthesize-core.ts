@@ -82,31 +82,46 @@ export function synthesizeCore(input: SynthesisInput): Synthesis {
     );
   }
 
-  const target = isRelative(input.coreModule)
-    ? relativeTarget(input.coreModule)
-    : `node_modules/${input.coreModule}/index.ts`;
+  if (!isRelative(input.coreModule)) {
+    return {
+      files: input.files.map((file) =>
+        file.path === primary.path
+          ? { ...file, path: `node_modules/${input.coreModule}/index.ts` }
+          : file,
+      ),
+      verbatim: [packageManifest(input.coreModule)],
+    };
+  }
+
+  // The bundle is placed as deep as the specifier climbs, so that what the specifier resolves to is
+  // inside the root rather than above it. At depth zero this is the plain case and adds nothing.
+  const depth = climbOf(input.coreModule);
+  const prefix = Array.from({ length: depth }, (_unused, level) => `level${String(level + 1)}/`).join("");
 
   return {
     files: input.files.map((file) =>
-      file.path === primary.path ? { ...file, path: target } : file,
+      file.path === primary.path
+        ? { ...file, path: relativeTarget(input.coreModule) }
+        : { ...file, path: `${prefix}${file.path}` },
     ),
-    verbatim: isRelative(input.coreModule)
-      ? []
-      : [
-          {
-            path: `node_modules/${input.coreModule}/package.json`,
-            contents: `${JSON.stringify(
-              {
-                name: input.coreModule,
-                // `types` for the compiler, `main` for the sandbox, which runs the transpiled copy.
-                types: "index.ts",
-                main: "index.js",
-              },
-              undefined,
-              2,
-            )}\n`,
-          },
-        ],
+    verbatim: [],
+  };
+}
+
+/** A package specifier's manifest, which makes a bare import resolve inside a sandbox with no install. */
+function packageManifest(coreModule: string): { readonly path: string; readonly contents: string } {
+  return {
+    path: `node_modules/${coreModule}/package.json`,
+    contents: `${JSON.stringify(
+      {
+        name: coreModule,
+        // `types` for the compiler, `main` for the sandbox, which runs the transpiled copy.
+        types: "index.ts",
+        main: "index.js",
+      },
+      undefined,
+      2,
+    )}\n`,
   };
 }
 
@@ -114,13 +129,37 @@ function isRelative(specifier: string): boolean {
   return specifier.startsWith("./") || specifier.startsWith("../");
 }
 
+/** How many directories a specifier climbs before it starts descending. */
+function climbOf(specifier: string): number {
+  let climb = 0;
+  for (const segment of specifier.split("/")) {
+    if (segment !== "..") break;
+    climb += 1;
+  }
+  return climb;
+}
+
 /**
- * The file path a relative specifier resolves to.
+ * The file path a relative specifier resolves to, from a bundle placed `climbOf` levels down.
  *
- * `../` cannot appear: `checkCoreModule` refuses a `..` segment, because verification that reached
- * outside its own root would be checking against something the caller's project need not contain
- * either — and `assertSafePath` in the test sandbox refuses it a second time.
+ * Climbing is what the nesting above is for. `../lib/core.js` is a normal thing for a caller to write —
+ * a binding in `src/orders` importing a core in `src/lib` — and it used to be refused, because a bundle
+ * written at the root would have resolved it above the root, where `assertSafePath` refuses to write and
+ * where the compiler would have nothing to read. Refusing was never the intent: the specifier is the
+ * caller's own path in their own repository, and the emitted bytes carry it verbatim either way, so what
+ * the ban actually cost was verification of a layout the service claimed to support. Placing the bundle
+ * as deep as the specifier climbs resolves it inside the root instead, so `..` needs no special case
+ * here: stripping the climb leaves the path from the root.
+ *
+ * Interior `..` is still refused by `checkCoreModule`, since a specifier that descends and then climbs
+ * back has a shorter spelling and no reason to arrive in this one.
  */
 function relativeTarget(specifier: string): string {
-  return `${specifier.slice(2).replace(/\.[cm]?[jt]sx?$/, "")}.ts`;
+  const descent = specifier
+    .split("/")
+    .slice(climbOf(specifier))
+    .filter((segment) => segment !== ".")
+    .join("/");
+
+  return `${descent.replace(/\.[cm]?[jt]sx?$/, "")}.ts`;
 }

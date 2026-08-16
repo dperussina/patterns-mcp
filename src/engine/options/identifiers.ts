@@ -9,6 +9,7 @@
  * pattern rather than an escaping pass. Nothing outside `[A-Za-z0-9_$]` gets
  * through, which also rules out path separators and traversal sequences.
  */
+import { pascalOf } from "./casing.js";
 
 /** Deliberately ASCII-only. See `checkIdentifier`. */
 const IDENTIFIER = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
@@ -133,6 +134,10 @@ export interface IdentifierCheckOptions {
    * pattern itself emits. A domain name colliding with a generated helper
    * produces uncompilable output just as surely as a keyword does, and the
    * generator is the only party that knows what it is about to emit.
+   *
+   * Matched on the derived Pascal form on both sides, since that is the name
+   * that reaches a declaration site. Comparing the spellings instead let
+   * `repository` through where `Repository` was refused.
    */
   readonly reserved?: Iterable<string>;
   readonly maxLength?: number;
@@ -141,7 +146,22 @@ export interface IdentifierCheckOptions {
 }
 
 export type IdentifierCheck =
-  { readonly ok: true } | { readonly ok: false; readonly problem: string };
+  | { readonly ok: true }
+  | {
+      readonly ok: false;
+      /** Self-contained, naming the value: for a consumer that reports this text as it stands. */
+      readonly problem: string;
+      /**
+       * The constraint alone, naming neither the value nor the role.
+       *
+       * Carried separately so a caller-facing adapter can compose its own sentence without either
+       * re-deriving the rule or scrubbing this one. The MCP adapter used to pass `problem` through a
+       * filter that strips quoted values, which removed the only part a caller could act on: a
+       * rejected `Error` was reported as "entity the supplied value is reserved", naming the role
+       * where the value belonged and never saying what had been refused.
+       */
+      readonly rule: string;
+    };
 
 /**
  * Checks one identifier, reporting the first rule it breaks.
@@ -162,13 +182,18 @@ export function checkIdentifier(
   const maxLength = options.maxLength ?? MAX_IDENTIFIER_LENGTH;
 
   if (value.length === 0) {
-    return { ok: false, problem: `${label} must not be empty` };
+    return {
+      ok: false,
+      problem: `${label} must not be empty`,
+      rule: "A name is required.",
+    };
   }
 
   if (value.length > maxLength) {
     return {
       ok: false,
       problem: `${label} "${truncate(value)}" is ${value.length} characters; the limit is ${maxLength}`,
+      rule: `The limit is ${maxLength} characters, and that one is ${value.length}.`,
     };
   }
 
@@ -179,6 +204,9 @@ export function checkIdentifier(
         `${label} "${truncate(value)}" is not a valid identifier; it must match ` +
         `${IDENTIFIER.source} — ASCII letters, digits, underscore and dollar only, ` +
         `not starting with a digit`,
+      rule:
+        `A name must match ${IDENTIFIER.source} — ASCII letters, digits, underscore ` +
+        `and dollar only, not starting with a digit.`,
     };
   }
 
@@ -186,16 +214,28 @@ export function checkIdentifier(
     return {
       ok: false,
       problem: `${label} "${value}" is reserved and cannot be used as a generated name`,
+      rule:
+        "That name is reserved: it is a keyword, a built-in type, or a global the generated " +
+        "code relies on, so a module declaring it would not compile. Supply a different name.",
     };
   }
 
+  // Compared as the code would see them, not as they were typed. A pattern writes its names in one
+  // casing and a caller may send another, so `repository` was accepted where `Repository` was refused
+  // — the same collision, spelled differently, and the bundle failed its own compiler. `REPOSITORY`
+  // stays an acronym through the derivation and therefore stays a different name, which it is.
+  const derived = pascalOf(value);
   for (const reserved of options.reserved ?? []) {
-    if (reserved === value) {
+    if (pascalOf(reserved) === derived) {
       return {
         ok: false,
         problem:
           `${label} "${value}" collides with an identifier this pattern emits; ` +
           `choose another name`,
+        rule:
+          "That name collides with an identifier this pattern emits, which would not compile — " +
+          "including where only the casing differs, since a name reaches the generated code in " +
+          "whichever casing each site needs. Supply a different name.",
       };
     }
   }

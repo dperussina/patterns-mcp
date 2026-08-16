@@ -1,0 +1,212 @@
+{
+  "patterns": [
+    {
+      "name": "specification",
+      "title": "Specification",
+      "category": "behavioral",
+      "kind": "generative",
+      "intent": "Name a business rule as an object that both tests a candidate and describes itself, so rules compose and the same rule can filter in memory or be pushed into a query.",
+      "supportsSplit": false,
+      "variants": [],
+      "identifiers": [
+        {
+          "name": "entity",
+          "description": "The candidate the rule tests."
+        }
+      ],
+      "options": [
+        {
+          "name": "composition",
+          "type": "enum",
+          "values": [
+            "fluent",
+            "free"
+          ],
+          "default": "fluent",
+          "description": "How rules are combined. `fluent` hangs `and`, `or` and `not` off the specification itself, so a composite reads left to right as the rule it encodes and needs nothing imported to extend it. `free` keeps the combinators as standalone functions, which composes better under `reduce` and over an array of rules built at run time, and keeps the specification a plain value rather than something with behaviour attached. Both preserve the type refinement through arbitrarily deep composition, which was checked rather than assumed.",
+          "affects": [
+            "core",
+            "example",
+            "test"
+          ]
+        },
+        {
+          "name": "translation",
+          "type": "boolean",
+          "default": true,
+          "description": "Give every specification a data description of itself alongside its predicate, so a rule can be handed to a datastore instead of applied to everything the datastore returned. This is the difference between this pattern and a named predicate, and it is bought at a price worth stating plainly: the leaves become declarative, built from a field, an operator and a value rather than from an arbitrary function, because a rule expressed as a closure cannot be translated into anything. What that buys back is that the predicate and the query are *derived from one declaration*, so the in-memory answer and the pushed-down answer cannot disagree. Turn it off where the rules are genuinely arbitrary computation and everything is already in memory.",
+          "affects": [
+            "core",
+            "example",
+            "test"
+          ]
+        },
+        {
+          "name": "includeTests",
+          "type": "boolean",
+          "default": true,
+          "description": "Emit the executable suite and the compile-time suite alongside the implementation. What composition does to the refinement is pinned in the example either way, since a specification that has quietly stopped narrowing behaves identically at run time to one that has not.",
+          "affects": [
+            "files",
+            "test"
+          ]
+        }
+      ],
+      "legality": [],
+      "relatedPatterns": [
+        "discriminated-union",
+        "repository",
+        "result"
+      ],
+      "provenance": "Original implementation of the pattern Evans and Fowler describe, with a type-level contribution neither treatment has: the specification carries the refinement it establishes, so `orders.filter(paid.isSatisfiedBy)` yields a list whose element type says the rule held. Four things were settled by running the compiler at every strictness this generates for. Composition preserves that refinement \u2014 `and` intersects and `or` unions, through chains at least three deep and through a variadic form whose non-empty tuple constraint also refuses the meaningless empty call. Negation cannot preserve it, and the type that appears to is a trap: `Exclude<Order, PaidOrder>` is not the complement but `Order` itself, because `Order` is not a union, and since TypeScript verifies no predicate's logic the unsound version compiles quietly. `not` therefore gives the refinement up explicitly, which is asserted. A leaf declared as data still earns a refinement derived from its own value, so the declarative form costs nothing in precision, and an impossible value, an unknown field, or a numeric comparison against a string field are each refused. And the refinement survives only when a rule is bound to a name before being combined: inferred inside a nested call the literal widens to the whole property type under `strictNullChecks: false`. The emitted code names its rules for that reason, which is what the pattern asks for anyway.",
+      "license": "original",
+      "tier": 1
+    },
+    {
+      "name": "typed-emitter",
+      "title": "Typed Emitter",
+      "category": "behavioral",
+      "kind": "generative",
+      "intent": "Give an event emitter an event map, so a name that does not exist, a payload of the wrong shape, and a handler with the wrong parameters are all compile errors.",
+      "supportsSplit": false,
+      "variants": [],
+      "identifiers": [
+        {
+          "name": "entity",
+          "description": "The subject whose events are being declared."
+        }
+      ],
+      "options": [
+        {
+          "name": "dispatch",
+          "type": "enum",
+          "values": [
+            "sync",
+            "async"
+          ],
+          "default": "sync",
+          "description": "Whether emitting waits for its handlers. `sync` returns nothing and calls each handler in turn, which is what an emitter is usually for: the emitting code announces something and carries on. `async` returns a promise that settles once every handler has, which is the only version that can report a failure in an asynchronous handler or let the emitter apply back-pressure \u2014 and it changes every call site, since an un-awaited `emit` becomes a floating promise. Handlers are awaited in registration order rather than together, so that ordering means what it appears to; the parallel alternative is noted where it would go.",
+          "affects": [
+            "core",
+            "example",
+            "test"
+          ]
+        },
+        {
+          "name": "errors",
+          "type": "enum",
+          "values": [
+            "isolate",
+            "propagate"
+          ],
+          "default": "isolate",
+          "description": "What one failing handler does to the others. `isolate` runs every handler regardless and reports failures to a sink the caller must supply, which is the default because the premise of an emitter is that the emitting code does not know who is listening \u2014 letting an unknown subscriber's bug surface inside the code that emitted couples them straight back together, and the remaining subscribers lose an event they had nothing to do with. Requiring the sink is what keeps that from being silent. `propagate` lets the first failure out of `emit`, which is right where the listeners are part of the same unit as the emitter and a failure among them is a failure of the whole operation.",
+          "affects": [
+            "core",
+            "example",
+            "test"
+          ]
+        },
+        {
+          "name": "includeTests",
+          "type": "boolean",
+          "default": true,
+          "description": "Emit the executable suite and the compile-time suite alongside the implementation. The refusals \u2014 an unknown event, a mistyped payload, a handler whose parameters do not match \u2014 are asserted in the example either way, since they are the whole reason to reach for this over an untyped emitter and no suite that runs can check them.",
+          "affects": [
+            "files",
+            "test"
+          ]
+        }
+      ],
+      "legality": [],
+      "relatedPatterns": [
+        "discriminated-union",
+        "result",
+        "semaphore"
+      ],
+      "provenance": "Original implementation. The type-level result worth reporting is a negative one: the cast that almost every typed-emitter implementation carries is unnecessary. Storing handlers in a mapped type keyed by the event name \u2014 rather than in a `Map` over the union of names \u2014 makes an indexed lookup at `K extends keyof E` yield exactly that event's handler type, so dispatch needs no `as never` and none appears anywhere in what is emitted. Verified at every strictness this generates for, along with what the event map buys: an unknown name, a payload of the wrong type, too few arguments, and a handler whose parameter types disagree are each refused, while a handler that ignores some or all of the payload is accepted, which is ordinary function assignability and worth knowing before anyone tries to forbid it. Payloads are variadic tuples with named elements, so parameter names reach the call site and a zero-argument event emits with no arguments at all. Three run-time decisions were settled by prototype rather than by argument, each a place emitters are commonly wrong: the handler list is snapshotted before dispatch, so a handler registered by a handler does not run in the dispatch that registered it; a handler removed during dispatch does not run either, because unsubscribing should mean unsubscribed even from an emit already in flight; and `once` is a flag on the registration rather than a wrapper around the handler, because a wrapper has a different identity from the function the caller passed and would make `off` with that function silently do nothing.",
+      "license": "original",
+      "tier": 1
+    },
+    {
+      "name": "visitor",
+      "title": "Visitor",
+      "category": "behavioral",
+      "kind": "advisory",
+      "intent": "Add an operation over a fixed set of node types without editing each of them.",
+      "relatedPatterns": ["discriminated-union"],
+      "provenance": "Advisory entry. \"Visitor\" is from Gamma, Helm, Johnson and Vlissides, \"Design Patterns\" (1994), where double dispatch through an `accept` method separates an operation from the structure it walks. No implementation is adapted; the guidance is the entry, and the alternative it names is a generative entry in this catalog.",
+      "license": "original",
+      "tier": 1,
+      "advisory": {
+        "alternative": "a discriminated union and a `switch` the compiler checks for exhaustiveness",
+        "rationale": "The pattern is a workaround for single dispatch. A language that cannot select behaviour on two types at once needs `accept` and a visitor interface to fake it, and the price is that every operation is spread across as many classes as there are node types. TypeScript narrows a union on its discriminant, so the operation is one function with one `switch`, and the guarantee the visitor interface was providing — that no node type is forgotten — is provided instead by a `never`-typed default arm, which is a compile error naming the case that was missed. Generate the `discriminated-union` entry for that arm and the exhaustiveness check.",
+        "example": "type Node = { kind: \"literal\"; value: number } | { kind: \"add\"; left: Node; right: Node };\n\nfunction evaluate(node: Node): number {\n  switch (node.kind) {\n    case \"literal\":\n      return node.value;\n    case \"add\":\n      return evaluate(node.left) + evaluate(node.right);\n    default: {\n      // A node type added later fails to compile here, naming itself.\n      const unhandled: never = node;\n      return unhandled;\n    }\n  }\n}"
+      }
+    },
+    {
+      "name": "observer",
+      "title": "Observer",
+      "category": "behavioral",
+      "kind": "advisory",
+      "intent": "Notify a set of dependents when the thing they depend on changes.",
+      "relatedPatterns": ["typed-emitter"],
+      "provenance": "Advisory entry. \"Observer\" is from Gamma, Helm, Johnson and Vlissides, \"Design Patterns\" (1994), where subjects hold a list of observer objects and call `update` on each. No implementation is adapted; the guidance is the entry, and the alternative it names is a generative entry in this catalog.",
+      "license": "original",
+      "tier": 2,
+      "advisory": {
+        "alternative": "the `typed-emitter` entry in this catalog, or `EventTarget` where the platform's own type is enough",
+        "rationale": "The idea has not been superseded — publish and subscribe is as useful as ever — but the 1994 shape has. An `Observer` interface with an `update` method exists because a function could not be passed as a value; in TypeScript the subscriber is a function, so the interface and the classes implementing it are ceremony around a callback. What is worth generating instead is the part the book does not address and that hand-written emitters usually get wrong: an event map that makes an unknown event name and a mistyped payload compile errors, and dispatch that behaves predictably when a handler subscribes or unsubscribes mid-emit. That is `typed-emitter`.",
+        "example": "// The subscriber is a function, so no Observer interface is needed.\nconst off = orders.on(\"placed\", (order) => void ship(order));\noff(); // unsubscribing is the return value, not a second method and a matching identity"
+      }
+    },
+    {
+      "name": "strategy",
+      "title": "Strategy",
+      "category": "behavioral",
+      "kind": "advisory",
+      "intent": "Make an algorithm interchangeable at run time, independently of the code that uses it.",
+      "relatedPatterns": ["factory"],
+      "provenance": "Advisory entry. \"Strategy\" is from Gamma, Helm, Johnson and Vlissides, \"Design Patterns\" (1994), where each algorithm is a class implementing a common interface. No implementation is adapted; the guidance is the entry.",
+      "license": "original",
+      "tier": 1,
+      "advisory": {
+        "alternative": "a function parameter, typed as a function",
+        "rationale": "A strategy class with one method is a function that cannot be passed directly. TypeScript has first-class functions and structural typing, so the interchangeable algorithm is a parameter whose type is a signature, and the compiler checks a candidate against it without anyone declaring that they implement anything. Where the choice is made from data at run time — a name from a config file selecting one of several — that is a lookup returning a function, and the entry worth generating is `factory`, whose keyed map narrows the return type to the one the key selects.",
+        "example": "type Compare<T> = (a: T, b: T) => number;\n\nfunction sortBy<T>(items: readonly T[], compare: Compare<T>): T[] {\n  return items.toSorted(compare);\n}"
+      }
+    },
+    {
+      "name": "template-method",
+      "title": "Template Method",
+      "category": "behavioral",
+      "kind": "advisory",
+      "intent": "Fix the skeleton of an operation and let subclasses supply the steps that vary.",
+      "relatedPatterns": ["decorator"],
+      "provenance": "Advisory entry. \"Template Method\" is from Gamma, Helm, Johnson and Vlissides, \"Design Patterns\" (1994), where a base-class method calls abstract steps that subclasses override. No implementation is adapted; the guidance is the entry.",
+      "license": "original",
+      "tier": 2,
+      "advisory": {
+        "alternative": "a function that takes the varying steps as arguments",
+        "rationale": "Inheritance is being used here as a way to pass functions, and it is the expensive way. A subclass per variation ties the steps to a class hierarchy, makes two variations impossible to combine, and leaves the reader tracing which override runs — while a function taking the steps as parameters states the seams in its signature, lets a caller mix them freely, and needs no subclass to test one step in isolation. Where the wrapping is what varies rather than the steps, the `decorator` entry composes behaviour around a call without a hierarchy either.",
+        "example": "async function withReport<T>(\n  work: () => Promise<T>,\n  onDone: (outcome: T) => void,\n): Promise<T> {\n  const outcome = await work();\n  onDone(outcome);\n  return outcome;\n}"
+      }
+    },
+    {
+      "name": "iterator",
+      "title": "Iterator",
+      "category": "behavioral",
+      "kind": "advisory",
+      "intent": "Walk the elements of a collection without exposing how it stores them.",
+      "relatedPatterns": [],
+      "provenance": "Advisory entry. \"Iterator\" is from Gamma, Helm, Johnson and Vlissides, \"Design Patterns\" (1994), where an iterator object exposes `first`, `next` and `isDone`. No implementation is adapted; the guidance is the entry.",
+      "license": "original",
+      "tier": 2,
+      "advisory": {
+        "alternative": "a generator function, or `[Symbol.iterator]()` on the collection itself",
+        "rationale": "The language absorbed this one outright. Implementing `[Symbol.iterator]` makes a collection work with `for...of`, spread, destructuring and every function taking an iterable, and a generator writes the traversal as ordinary sequential code with `yield` in place of a hand-maintained cursor — which is the part worth having, because the cursor field is where a hand-written iterator goes wrong when the traversal is recursive. `AsyncIterable` and `for await` cover the streaming case on the same protocol.",
+        "example": "class Tree<T> {\n  constructor(private readonly value: T, private readonly children: Tree<T>[] = []) {}\n\n  *[Symbol.iterator](): Generator<T> {\n    yield this.value;\n    for (const child of this.children) yield* child;\n  }\n}\n\nconst values = [...new Tree(1, [new Tree(2)])];"
+      }
+    }
+  ]
+}

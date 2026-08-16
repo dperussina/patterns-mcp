@@ -57,6 +57,8 @@ interface Described {
     readonly description: string;
     readonly affects: readonly string[];
   }[];
+  readonly identifiers: readonly { readonly name: string; readonly description: string }[];
+  readonly reservedNames: readonly string[];
   readonly legality: readonly { readonly rule: string; readonly alternatives: readonly string[] }[];
   readonly variants: readonly string[];
   readonly relatedPatterns: readonly string[];
@@ -204,6 +206,7 @@ describe("describe_pattern", () => {
       if (pattern.kind !== "generative") continue;
 
       expect(described.options).toEqual(pattern.options);
+      expect(described.identifiers).toEqual(pattern.identifiers);
       expect(described.legality).toEqual(pattern.legality);
       expect(described.variants).toEqual(pattern.variants);
       expect(described.relatedPatterns).toEqual(pattern.relatedPatterns);
@@ -229,6 +232,96 @@ describe("describe_pattern", () => {
         }
       }
     }
+  });
+
+  /**
+   * The other half of a request. It was missing entirely, which is why an agent had to guess the key
+   * — and guessing wrong was silent until the refusal added alongside this. A description that omits
+   * an input is not "everything needed to call correctly the first time", whatever the tool says.
+   */
+  it("names the identifiers a caller has to supply, and what each one names", async () => {
+    for (const pattern of catalog.patterns) {
+      if (pattern.kind !== "generative") continue;
+      const described = await describeOne(pattern.name);
+
+      for (const role of described.identifiers) {
+        expect(role.name.length, `${pattern.name} identifier name`).toBeGreaterThan(0);
+        expect(role.description.length, `${pattern.name}.${role.name}`).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it("says so explicitly when a pattern takes none, rather than omitting the section", async () => {
+    const takesNone = await session.client.callTool({
+      name: "describe_pattern",
+      arguments: { pattern: "tool-loop" },
+    });
+    const takesOne = await session.client.callTool({
+      name: "describe_pattern",
+      arguments: { pattern: "repository" },
+    });
+
+    expect((takesNone.structuredContent as { identifiers: unknown[] }).identifiers).toEqual([]);
+    // Silence would read as "identifiers are irrelevant here", and a caller who sends one anyway is
+    // now refused. The absence has to be stated.
+    expect(textOf(takesNone.content)).toMatch(/Identifiers\s*\n\s*\nNone/);
+    expect(textOf(takesOne.content)).toContain("`entity`");
+    expect(textOf(takesOne.content)).toContain("The entity the repository stores.");
+  });
+
+  /**
+   * The names a pattern keeps for itself, which used to be discoverable only by being refused for one.
+   *
+   * Asserted as a round trip rather than against the declarations: reading the same list the description
+   * reads would pass whatever either said. What matters to a caller is that the disclosure and the refusal
+   * agree — a name listed here must actually be refused, and a pattern with nothing listed must accept the
+   * names it writes, which the FR-052 sweep checks from the other end.
+   */
+  it("discloses the names it keeps for itself, and refuses exactly those", async () => {
+    let disclosed = 0;
+
+    for (const pattern of catalog.patterns) {
+      if (pattern.kind !== "generative") continue;
+      const described = await describeOne(pattern.name);
+
+      // A pattern that reads no name has nothing to reserve, since nothing a caller sends is declared.
+      if (pattern.identifiers.length === 0) {
+        expect(described.reservedNames, `${pattern.name} reserves without reading`).toEqual([]);
+        continue;
+      }
+
+      for (const name of described.reservedNames) {
+        disclosed += 1;
+        const refused = await session.client.callTool({
+          name: "generate_pattern",
+          arguments: {
+            pattern: pattern.name,
+            identifiers: { [pattern.identifiers[0]?.name ?? "entity"]: name },
+            verbosity: "summary",
+          },
+        });
+
+        expect(refused.isError, `${pattern.name} discloses ${name} but accepts it`).toBe(true);
+        expect(textOf(refused.content), `${pattern.name} refused ${name} as our defect`).not.toContain(
+          "defect in the pattern",
+        );
+      }
+    }
+
+    // The claim is worth nothing if nothing is disclosed anywhere.
+    expect(disclosed, "no pattern discloses a reserved name").toBeGreaterThan(0);
+  }, 120_000);
+
+  it("says it in the text a caller reads, not only in the structure", async () => {
+    const result = await session.client.callTool({
+      name: "describe_pattern",
+      arguments: { pattern: "repository" },
+    });
+
+    // With the casing clause, since the comparison is on the derived name: a caller who reads
+    // `Repository` and sends `repository` is asking for the same collision.
+    expect(textOf(result.content)).toMatch(/Taken:.*`Repository`/);
+    expect(textOf(result.content)).toMatch(/whatever casing/i);
   });
 
   it("renders the options and rules a caller has to read", async () => {

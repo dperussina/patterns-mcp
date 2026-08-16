@@ -33,6 +33,18 @@ export interface RenderedFile {
   readonly path: string;
   readonly contents: string;
   readonly role: FileRole;
+  /**
+   * Set on a support file that is byte-identical in every bundle, whatever pattern or options produced
+   * it — currently only the `node:test` assertion shim.
+   *
+   * It changes how the file is attributed. An ordinary file names the pattern and options it came from,
+   * which is what lets a reader tell whether machinery is already installed. A shared file cannot: it
+   * belongs to every pattern equally, and a header naming whichever one happened to ask for it is both
+   * false and the thing that makes two bundles unsafe to unpack side by side. Two patterns emitting the
+   * same path must emit the same bytes, or the second overwrites the first and the first's suite stops
+   * compiling — which is invisible here, because each bundle is verified alone.
+   */
+  readonly provenance?: "shared";
 }
 
 /**
@@ -57,6 +69,26 @@ export interface RenderContext {
 export interface PatternModule {
   /** The catalog entry this implements. Checked against the catalog at load time. */
   readonly name: string;
+  /**
+   * Names this template writes literally, which a name derived from the caller's identifier must
+   * therefore not equal.
+   *
+   * A template writes some names whatever it is asked for: a core export the binding imports, an
+   * illustrative second type an example needs in order to contrast with the first, the type-level
+   * assertion helpers. A caller whose entity derives to one of those gets a module that imports a
+   * name and declares it, which does not compile — and because the compiler runs before the bundle
+   * is returned, the caller is told the pattern is defective. Accurate, and no use to them: nothing
+   * in the answer says which of their names caused it or that another would work.
+   *
+   * Declared here rather than in the catalog because the list is a fact about this file. A list kept
+   * anywhere else drifts the first time a template gains a helper, silently, back into the failure it
+   * was added to prevent. `conformance/emitted-names` keeps it honest by reading the names out of a
+   * rendered bundle and requiring each one to be either usable or refused.
+   *
+   * Only names that would actually break belong here. A template able to step aside instead should
+   * do that, since a refusal spends the caller's turn on a name we chose, not one they did.
+   */
+  readonly emits?: readonly string[];
   /**
    * Pure and synchronous. Formatting, verification, ordering, and provenance headers all happen after
    * this returns, so a template's only job is to produce correct content.

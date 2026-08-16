@@ -8,7 +8,9 @@ constitutional guarantee end to end, and each maps to a success criterion in
 
 ## Prerequisites
 
-- Node.js 20 or newer (developed on 22.20)
+- Node.js 22.13.0 or newer (developed on 22.20). The floor is where `--permission` reached its current
+  name, which is what executes generated tests without handing them the filesystem; the server refuses
+  to start below it rather than reporting every request as a defect (FR-053)
 - pnpm
 - A clean checkout; verification spawns a compiler binary, so no sandbox that blocks subprocesses
 

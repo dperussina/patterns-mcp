@@ -26,11 +26,12 @@ import {
 } from "../../engine/catalog/schema.js";
 import { describePattern } from "../../index.js";
 import type { PatternDetail } from "../../index.js";
-import { toErrorResult } from "../errors.js";
+import { cacheHintMeta } from "../cache.js";
+import { strictObject, toErrorResult } from "../errors.js";
 
 import type { CallToolResult } from "@modelcontextprotocol/server";
 
-export const describeInput = z.object({
+export const describeInput = strictObject({
   pattern: z
     .string()
     .describe("Catalog name of the pattern, e.g. \"result\". Call list_patterns for the names."),
@@ -77,6 +78,17 @@ const optionOutput = z.discriminatedUnion("type", [
 ]);
 
 /**
+ * The names a caller supplies. Described alongside the options because they are the other half of a
+ * request, and were the half a caller had to guess at.
+ */
+const identifierOutput = z.object({
+  name: z
+    .string()
+    .describe("The key to use in `identifiers`, e.g. `entity` in `{ entity: \"Order\" }`."),
+  description: z.string().describe("What the pattern names after it."),
+});
+
+/**
  * A legality rule is returned as its trigger *and* its prose, not one or the other. The prose is what a
  * caller reads; the `when`/`forbids` pair is what a caller can evaluate before calling, which is the
  * difference between documentation and a rule that can be checked.
@@ -102,6 +114,20 @@ export const describeOutput = z.object({
     .boolean()
     .describe("Whether `emitScope` is available. False means this pattern emits one module."),
   variants: z.array(z.string()).describe("Named variants. Empty when there is only the default form."),
+  identifiers: z
+    .array(identifierOutput)
+    .describe(
+      "The names to pass in `identifiers`, and what each one names. Empty means this pattern " +
+        "takes none and will refuse any you send. Each is optional: omit one and a generic name " +
+        "is used instead.",
+    ),
+  reservedNames: z
+    .array(z.string())
+    .describe(
+      "Names this pattern writes itself, so a name you send that reaches any of them is refused. " +
+        "Compared after casing is applied, so `repository` is the same request as `Repository`. " +
+        "Usually empty.",
+    ),
   options: z.array(optionOutput).describe("Every option, with its permitted values and default."),
   legality: z
     .array(legalityOutput)
@@ -116,6 +142,21 @@ export const describeOutput = z.object({
     })
     .optional()
     .describe("Present only on an advisory pattern. Its presence is why nothing will be generated."),
+  network: z
+    .object({
+      boundary: z.string().describe("What to pass a stub to, so nothing is reached in a test."),
+      reason: z.string().describe("Which emitted file calls out, under which options, and why."),
+      defaultHost: z
+        .string()
+        .optional()
+        .describe("Where it goes if you override nothing. Absent when you must supply the host."),
+    })
+    .optional()
+    .describe(
+      "Present only when the generated code can reach the network. Absent means it cannot, under any " +
+        "option. Read before generating: this is the field that decides whether the output is something " +
+        "you can drop into a codebase without a second review.",
+    ),
   provenance: z.string().describe("Where the pattern's design came from."),
   license: z.enum(ALLOWED_LICENSES).describe("Licence the pattern's provenance permits."),
 });
@@ -130,7 +171,11 @@ export async function detail(name: string): Promise<PatternDetail> {
 export async function handleDescribe(input: DescribeInput): Promise<CallToolResult> {
   try {
     const described = await detail(input.pattern);
-    return { content: [{ type: "text", text: render(described) }], structuredContent: described };
+    return {
+      content: [{ type: "text", text: render(described) }],
+      structuredContent: described,
+      _meta: cacheHintMeta(),
+    };
   } catch (error) {
     return toErrorResult(error);
   }
@@ -145,6 +190,45 @@ function render(pattern: PatternDetail): string {
     );
     if (pattern.advisory.example !== undefined) {
       sections.push(`\`\`\`ts\n${pattern.advisory.example}\n\`\`\``);
+    }
+  }
+
+  if (pattern.kind === "generative") {
+    sections.push(
+      pattern.identifiers.length > 0
+        ? "### Identifiers\n\n" +
+            pattern.identifiers
+              .map((role) => `- \`${role.name}\` — ${role.description}`)
+              .join("\n") +
+            "\n\nPass a singular PascalCase domain noun, e.g. " +
+            `\`{ ${pattern.identifiers[0]?.name ?? "entity"}: "Order" }\`. ` +
+            "Each may be omitted, in which case a generic name is used. Any other key is refused."
+        : "### Identifiers\n\nNone: this pattern emits one module named after itself. " +
+            "Supplying any identifier is refused rather than ignored.",
+    );
+
+    // Said here rather than left to the refusal, which arrives a turn too late. The casing clause is not
+    // pedantry: the comparison is on the derived name, so a caller reading `Repository` and sending
+    // `repository` would otherwise think they had found a way round it.
+    if (pattern.reservedNames.length > 0) {
+      sections.push(
+        `**Taken:** ${pattern.reservedNames.map((name) => `\`${name}\``).join(", ")} — ` +
+          "this pattern writes these itself, and a name of yours that reaches one is refused, " +
+          "whatever casing you send it in. Everything else it names around yours.",
+      );
+    }
+
+    // Ahead of the options rather than after them, because it can decide whether the options matter.
+    if (pattern.network !== undefined) {
+      const host =
+        pattern.network.defaultHost === undefined
+          ? "It contacts only the host you configure."
+          : `Default host: ${pattern.network.defaultHost}`;
+      sections.push(
+        `**Reaches the network.** ${pattern.network.reason} Pass your own \`${pattern.network.boundary}\` ` +
+          `to keep it offline — the generated tests do exactly that, and are executed here before you ` +
+          `receive them, so nothing dials during generation. ${host}`,
+      );
     }
   }
 

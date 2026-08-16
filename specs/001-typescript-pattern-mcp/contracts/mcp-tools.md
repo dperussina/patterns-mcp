@@ -23,7 +23,17 @@ Shared conventions for all three:
   offending field, states the rule, and lists valid alternatives. Protocol-level errors are reserved for
   malformed requests.
 - **Injection safety.** Caller-supplied values are escaped or elided before appearing in any returned
-  message (FR-035). An error never echoes a raw caller string.
+  message (FR-035). An error never echoes a raw caller string. Elided is the fallback, not the rule: a
+  refusal that withholds the value it refused leaves the caller unable to tell which of the names they
+  sent to change, which is what a refused identifier used to do. A value is quoted when it is inert —
+  which anything passing the identifier charset is — and described when it is not. This covers field
+  *names* as well as values: an object key is caller-supplied, and a request can name its keys freely.
+- **Closed inputs.** Every input schema is strict: `additionalProperties: false`, and a field the tool does
+  not accept is refused rather than dropped (FR-051). The refusal says where the value belongs — an option
+  inside `options`, a name inside `identifiers`, a project setting inside `conventions` — and names only
+  destinations the tool it came from has, since `describe_pattern` takes a pattern and nothing else. A
+  misspelled key inside `conventions` is refused as "not a convention" with the settable ones listed, not as
+  an unknown argument, because a caller told the latter would go looking for it at the top level.
 
 ---
 
@@ -92,13 +102,28 @@ The tool that does the work: resolve options, render, format, verify, return.
 | `cancellation` | `none` \| `abort-signal` | no | |
 | `includeTests` | boolean | no | Default `true`. |
 | `verbosity` | `full` \| `code-only` \| `summary` | no | Default `full` (FR-028). |
-| `identifiers` | record of validated names | no | e.g. the domain type a binding is generated for. |
+| `identifiers` | record of validated names | no | Keys must be roles the pattern declares; read them from `describe_pattern`. |
 | `options` | record of pattern-specific values | no | Validated against the pattern's declared options. |
 | `conventions` | Conventions object | no | Strictest reasonable defaults when absent (FR-026). |
 
 `identifiers` values are validated against `^[A-Za-z_$][A-Za-z0-9_$]*$`, length-capped, and checked
 against a reserved-word denylist before reaching generation (FR-032). Output paths are derived from
 validated inputs; callers cannot supply paths (FR-033).
+
+Its *keys* are closed, exactly as `options` keys are. A role the pattern does not declare is refused
+with the declared roles named, and six patterns declare none at all — they emit one module named after
+themselves, so `{ entity: "Order" }` is a refusal rather than a no-op. This is an amendment: such a
+key was accepted and ignored, which read as success and was not, because it still entered the options
+hash and so changed the provenance header of files that made no use of it. `describe_pattern` now
+publishes the roles, and states explicitly when a pattern takes none.
+
+Two further refusals are worth expecting even though the value passes validation:
+
+- A name whose plural cannot be derived confidently (`Staff`) is refused with the rule stated. It is
+  not silently replaced by a generic name, which is what used to happen.
+- No name is refused for its *length* below the cap, and every pattern is checked at the cap. A long
+  name changes where generated code wraps, which is not cosmetic: a wrapped statement can carry a
+  `@ts-expect-error` away from the error it asserts, which fails verification.
 
 **Output** (`structuredContent`) — a discriminated union on `kind`:
 
@@ -117,4 +142,7 @@ better for agents is an open item to settle with an evaluation set, not a prefer
 1. Byte-identical to any previous response for the same input (Principle I).
 2. Typechecked under `resolvedConventions` with zero diagnostics (Principle III).
 3. If it contains tests, those tests were executed and passed (Principle III).
-4. Every file carries a provenance header naming the pattern and the options hash (FR-020).
+4. Every file carries a provenance header naming the pattern and the options hash, except a shared
+   support file, which is marked as shared and names neither (FR-020).
+5. Two bundles may be unpacked into one directory: any path they both emit carries identical bytes in
+   both, so the collision is a no-op rather than one bundle overwriting the other (FR-020).

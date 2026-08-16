@@ -7,33 +7,306 @@
       "kind": "generative",
       "intent": "Model an operation's failure as a value in its return type instead of a thrown exception.",
       "supportsSplit": false,
-      "variants": ["tagged"],
+      "variants": [
+        "tagged"
+      ],
+      "identifiers": [
+        {
+          "name": "entity",
+          "description": "The value a successful result carries."
+        }
+      ],
       "options": [
         {
           "name": "includeTests",
           "type": "boolean",
           "default": true,
           "description": "Emit an executable test suite alongside the implementation.",
-          "affects": ["files", "test"]
+          "affects": [
+            "files",
+            "test"
+          ]
         },
         {
           "name": "includeAsync",
           "type": "boolean",
           "default": true,
           "description": "Emit the async combinators (fromPromise, mapAsync, andThenAsync) in addition to the synchronous surface.",
-          "affects": ["core"]
+          "affects": [
+            "core"
+          ]
         },
         {
           "name": "includeCollections",
           "type": "boolean",
           "default": true,
           "description": "Emit the collection combinators (all, partition) that turn many results into one.",
-          "affects": ["core", "test"]
+          "affects": [
+            "core",
+            "test"
+          ]
         }
       ],
       "legality": [],
       "relatedPatterns": [],
       "provenance": "Original implementation. The Result shape is a general-purpose idea with no single owner, expressed here in ordinary TypeScript rather than adapted from any specific library.",
+      "license": "original",
+      "tier": 1
+    },
+    {
+      "name": "branded-type",
+      "title": "Branded Primitive",
+      "category": "type-safety",
+      "kind": "generative",
+      "intent": "Give a primitive a nominal identity, so a value of one meaning cannot be passed where another is wanted, while it stays usable everywhere the primitive is.",
+      "supportsSplit": false,
+      "variants": [],
+      "identifiers": [
+        {
+          "name": "entity",
+          "description": "The value being branded, so that it stops being interchangeable with every other value of the same primitive type."
+        }
+      ],
+      "options": [
+        {
+          "name": "base",
+          "type": "enum",
+          "values": [
+            "string",
+            "number"
+          ],
+          "default": "string",
+          "description": "The primitive underneath. `string` is the identifier case, where the mistake being prevented is passing one entity's id where another's is wanted \u2014 two arguments of the same type in the same order, which no test reliably catches. `number` carries a defect the string case does not: arithmetic silently discards the brand, so adding two quantities produces a plain number and assigning it back has to be rejected. That is the property most worth seeing before relying on a branded number, because it means every derived value needs an explicit trip back through the constructor. The choice also names the artefact \u2014 an identifier and a quantity are different types with different files \u2014 so switching it is a rename rather than an edit.",
+          "affects": [
+            "files",
+            "core",
+            "example",
+            "test"
+          ]
+        },
+        {
+          "name": "construction",
+          "type": "enum",
+          "values": [
+            "assert",
+            "result",
+            "cast"
+          ],
+          "default": "assert",
+          "description": "How a value gets in, which is where a brand is kept honest or quietly given up. `assert` throws on a value that breaks the rule, which suits a boundary that has already decided bad input is exceptional. `result` returns the failure as a value, for a boundary that has to report several problems or answer without throwing. `cast` emits no rule at all and only the conspicuously named unchecked constructor, which is the honest rendering for a value already valid by construction elsewhere \u2014 a key read back from a database \u2014 where inventing a validation rule would be theatre.",
+          "affects": [
+            "core",
+            "example",
+            "test"
+          ]
+        },
+        {
+          "name": "includeTests",
+          "type": "boolean",
+          "default": true,
+          "description": "Emit the executable suite and the compile-time suite alongside the implementation. The guarantee itself is pinned in the example either way, since a type-level claim left unasserted is not a guarantee.",
+          "affects": [
+            "files",
+            "test"
+          ]
+        }
+      ],
+      "legality": [],
+      "relatedPatterns": [
+        "discriminated-union",
+        "parse-dont-validate",
+        "result",
+        "typestate"
+      ],
+      "provenance": "Original implementation of a technique that is common knowledge in the TypeScript community, where it is usually shown with a string tag \u2014 `{ readonly __brand: \"UserId\" }`. This uses a `unique symbol` instead, for a reason that was verified rather than assumed: two tags declared independently with the same string are structurally identical, so two teams that both reach for `\"Id\"` get types that interchange silently, while distinct symbols cannot collide however their labels read. The cost is that the type must be imported rather than restated, which is the intended constraint rather than an inconvenience.",
+      "license": "original",
+      "tier": 1
+    },
+    {
+      "name": "discriminated-union",
+      "title": "Discriminated Union",
+      "category": "type-safety",
+      "kind": "generative",
+      "intent": "Model a value that is exactly one of several shapes, so that illegal combinations cannot be constructed and a shape added later cannot be silently left unhandled.",
+      "supportsSplit": false,
+      "variants": [],
+      "identifiers": [
+        {
+          "name": "entity",
+          "description": "The union being declared, whose members share a discriminant."
+        }
+      ],
+      "options": [
+        {
+          "name": "dispatch",
+          "type": "enum",
+          "values": [
+            "switch",
+            "record"
+          ],
+          "default": "switch",
+          "description": "How a caller handles every case, and where exhaustiveness is enforced. `switch` is flow-based: narrowing happens per branch and completeness is established by handing the value to a function taking `never` in the default, which fails to compile once a member is unhandled. `record` is structural: handlers arrive as an object keyed by the discriminant, so a missing key is a compile error at every call site without anyone remembering to add a check. The difference matters when a member is added \u2014 the `switch` form is only as good as the default branch each author wrote, while the record form cannot be written incompletely in the first place.",
+          "affects": [
+            "core",
+            "example",
+            "test"
+          ]
+        },
+        {
+          "name": "guards",
+          "type": "boolean",
+          "default": true,
+          "description": "Emit a named type predicate per member, for narrowing outside a dispatch \u2014 filtering a list, or checking one case at a boundary. Worth more than it appears, because of a conflict that is easy to miss: the compiler now infers a predicate from an unannotated function whose body narrows, so `filter((e) => e.kind === \"shipped\")` does narrow \u2014 but writing the return type as `: boolean`, which most explicit-return-type lint rules require, silently opts out and leaves the elements unnarrowed. An explicit `event is OrderShipped` satisfies both, states the claim rather than leaving it to be inferred, and can be reused by name.",
+          "affects": [
+            "core",
+            "example",
+            "test"
+          ]
+        },
+        {
+          "name": "includeTests",
+          "type": "boolean",
+          "default": true,
+          "description": "Emit the executable suite and the compile-time suite alongside the implementation. Exhaustiveness is pinned in the example either way, since it is the guarantee the pattern exists for.",
+          "affects": [
+            "files",
+            "test"
+          ]
+        }
+      ],
+      "legality": [],
+      "relatedPatterns": [
+        "branded-type",
+        "result",
+        "specification",
+        "typestate"
+      ],
+      "provenance": "Original implementation of a technique the TypeScript handbook documents. Two things here were verified rather than assumed, because the plausible answers are wrong. The record dispatch is cast-free: indexing the handler map with the value's own discriminant collapses the parameter to an intersection of every member and fails, which is why this technique is usually shown with an internal `as never` \u2014 but making the function generic in the discriminant keeps the correspondence and needs no cast, with a missing key, an extra key and a handler reading another member's field all still rejected. And the case for named predicates is not the one usually given: inline narrowing in a `filter` does work now through inferred type predicates, and what defeats it is the explicit `: boolean` return annotation that lint rules ask for.",
+      "license": "original",
+      "tier": 1
+    },
+    {
+      "name": "typestate",
+      "title": "Typestate",
+      "category": "type-safety",
+      "kind": "generative",
+      "intent": "Put an object's state in its type, so that an operation belonging to another state is not callable rather than merely documented as an error.",
+      "supportsSplit": false,
+      "variants": [],
+      "identifiers": [
+        {
+          "name": "entity",
+          "description": "The type whose legal transitions are being encoded."
+        }
+      ],
+      "options": [
+        {
+          "name": "representation",
+          "type": "enum",
+          "values": [
+            "parameterised",
+            "distinct"
+          ],
+          "default": "parameterised",
+          "description": "Where the state lives. `parameterised` is one class carrying the state as a type argument, with each operation constrained by a `this` parameter, which buys method syntax, a fluent chain that reads as the workflow, and functions generic over any state. `distinct` is one type per state with free functions between them, which is plainer, needs no class, and survives a round trip through JSON. The difference that should decide it is not syntax: a private constructor makes the parameterised states unreachable except through the transitions, whereas plain interfaces can be fabricated by any object literal, so the distinct form guards the operations without guarding the states themselves.",
+          "affects": [
+            "core",
+            "example",
+            "test"
+          ]
+        },
+        {
+          "name": "staleGuard",
+          "type": "boolean",
+          "default": true,
+          "description": "Reject a value whose transition has already been taken. This exists because of a limit that cannot be engineered away: TypeScript has no linear types, so a transition consuming a value cannot stop the caller from using that same value again \u2014 `order.submit()` twice is not a compile error, and both calls return something the types are perfectly happy with. Turn this off only where every value is threaded through a chain and never bound to a name, since that is the sole discipline the compiler will not check for you.",
+          "affects": [
+            "core",
+            "example",
+            "test"
+          ]
+        },
+        {
+          "name": "includeTests",
+          "type": "boolean",
+          "default": true,
+          "description": "Emit the executable suite and the compile-time suite alongside the implementation. What each state forbids is pinned in the example either way, since that is the guarantee the pattern exists for.",
+          "affects": [
+            "files",
+            "test"
+          ]
+        }
+      ],
+      "legality": [],
+      "relatedPatterns": [
+        "branded-type",
+        "builder",
+        "discriminated-union",
+        "parse-dont-validate"
+      ],
+      "provenance": "Original implementation of a technique named in the typestate literature and best known from Rust, where the ownership system supplies the part TypeScript lacks. Three things here were established by running the compiler, and each changed the emitted code. A state parameter that no member mentions is inert: `Thing<\"idle\">` and `Thing<\"open\">` are then structurally identical, they assign to each other in either direction, and every constraint on every method silently stops applying \u2014 so the state is anchored by a real, readable field rather than left phantom. Narrowing does not work the way it appears to: testing that field on a value typed `Order<OrderState>` narrows the field and not the type argument, leaving the state-specific operations uncallable, while the same test on a union of instantiations narrows properly \u2014 which is why the emitted `AnyOrder` is that union rather than the parameterised form anyone would write first. And a `this`-constrained operation cannot be detached from its receiver, though it passes as a closure, which is a limit worth knowing before building an API around it.",
+      "license": "original",
+      "tier": 1
+    },
+    {
+      "name": "parse-dont-validate",
+      "title": "Parse, Don't Validate",
+      "category": "type-safety",
+      "kind": "generative",
+      "intent": "Turn unknown input into a type only a successful check could have produced, so that what the check learned is carried in the type rather than discarded at the next function boundary.",
+      "supportsSplit": false,
+      "variants": [],
+      "identifiers": [
+        {
+          "name": "entity",
+          "description": "The type the parser produces from untrusted input."
+        }
+      ],
+      "options": [
+        {
+          "name": "errors",
+          "type": "enum",
+          "values": [
+            "first",
+            "all"
+          ],
+          "default": "all",
+          "description": "What a failure reports. `first` stops at the problem it meets, which is the right answer for an internal boundary where any bad input is a bug and the first one names it. `all` visits every field and returns them together, which is what an API boundary needs, because a caller made to fix one field per round trip will make several and a form can only mark up problems it was told about. The difference is not cosmetic: accumulating requires every parser to be run rather than short-circuited, and the failure to carry a list rather than a value.",
+          "affects": [
+            "core",
+            "example",
+            "test"
+          ]
+        },
+        {
+          "name": "combinators",
+          "type": "boolean",
+          "default": true,
+          "description": "Emit a composable parser kit \u2014 a `Parser<T>` type with leaf parsers and combinators over it \u2014 rather than one hand-written function that checks each field in sequence. The kit costs an abstraction to learn and repays it twice: paths compose automatically, so a problem inside an array element reports `lines[1]` without anyone threading a prefix through by hand, and the parsed type is *derived from the parser* rather than declared next to it, which removes the possibility of the two drifting apart. Straight-line parsing is the honest choice for a single small boundary, where the kit is more machinery than the problem deserves.",
+          "affects": [
+            "core",
+            "example",
+            "test"
+          ]
+        },
+        {
+          "name": "includeTests",
+          "type": "boolean",
+          "default": true,
+          "description": "Emit the executable suite and the compile-time suite alongside the implementation. The claim that a check cannot substitute for a parse is pinned in the example either way, since it is the reason the pattern exists.",
+          "affects": [
+            "files",
+            "test"
+          ]
+        }
+      ],
+      "legality": [],
+      "relatedPatterns": [
+        "branded-type",
+        "result",
+        "typestate"
+      ],
+      "provenance": "Original implementation of the discipline Alexis King named in \"Parse, don't validate\" (2019), which argues the case in Haskell; the code here is written from scratch and the contribution is the TypeScript-specific evidence, which is stronger than the general argument. The load-bearing fact was checked at every strictness this generates for: `if (items.length > 0)` does not refine `readonly string[]` into `readonly [string, ...string[]]`, so a validator genuinely cannot hand its knowledge to the next function and the rebuild through a parser is the only route. What that buys was checked too \u2014 the first element of the refined type is `string` and not `string | undefined` even under `noUncheckedIndexedAccess`, so the downstream branch is *gone* rather than merely unlikely. Two limits are emitted as assertions rather than left to be discovered: `map` and `filter` both widen the refinement away, so a derived value has to be re-parsed. Two claims were deliberately not asserted, because they hold under `strict` and not under `strictNullChecks: false` and an assertion that inverts between callers is worse than none: that `.at(0)` stays partial, and that any element past the first does.",
       "license": "original",
       "tier": 1
     }

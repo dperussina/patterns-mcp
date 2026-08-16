@@ -1,109 +1,157 @@
 /**
  * Engine errors, as tool results.
  *
- * Two rules shape this file.
- *
  * A refusal is a **result**, not a protocol error: SDK v2 tool handlers return results, and protocol
  * errors are reserved for malformed requests (contracts/mcp-tools.md). A caller that asked for an
  * illegal combination sent a well-formed request and got a well-formed answer — "no, because".
  *
- * And no caller-supplied value reaches the message unless it is inert (FR-035). The engine's own
- * messages quote the offending value, which is right for a library whose caller is a program. Here the
- * caller is a model, and the message may well be pasted into another prompt, so a value that could
- * read as an instruction is described rather than echoed.
+ * The sentence itself is composed in `../refusals.ts`, which both surfaces share. What remains here is
+ * everything the protocol adds around it: the result envelope, the machine-readable `_meta`, and the
+ * decision about what gets logged rather than returned.
  */
+
+import { z } from "zod";
 
 import type { CallToolResult } from "@modelcontextprotocol/server";
 
-import {
-  EngineError,
-  InvalidIdentifierError,
-  InvalidOptionValueError,
-  MissingRequiredOptionError,
-  UnknownOptionError,
-  UnknownPatternError,
-  VerificationError,
-  isCorrectable,
-} from "../engine/errors.js";
+import { EngineError, VerificationError } from "../engine/errors.js";
+import { detailOf, list, messageFor, referenceFor, safe } from "../refusals.js";
+import { cacheHintMeta } from "./cache.js";
 import { stderrLog } from "./log.js";
+import { CORRECTABLE_META_KEY, ERROR_CODE_META_KEY } from "./meta.js";
 import type { Logger } from "./log.js";
 
 /**
- * A value safe to quote back: identifier-shaped, punctuation-free, and short.
- *
- * Whitespace is the important exclusion. Prose is what carries an injected instruction, and a value
- * with no spaces cannot be read as a sentence however it is framed.
+ * The names a project convention can have, for telling a caller who wrote one at the top level where it
+ * goes. Duplicated from the tool's own schema by necessity — the schema cannot ask itself what its keys are
+ * while it is being defined — and held to that by a test.
  */
-const INERT = /^[A-Za-z0-9_$.\-/]{1,64}$/;
+const CONVENTIONS = [
+  "strictness",
+  "moduleStyle",
+  "importExtensions",
+  "typeImports",
+  "testFramework",
+  "runtime",
+  "prettierConfig",
+] as const;
 
-/** Quotes a caller value when it is inert, and describes it otherwise. Never echoes prose. */
-function safe(value: string): string {
-  return INERT.test(value) ? `"${value}"` : "the value you supplied";
-}
-
-function list(values: readonly string[], ifEmpty: string): string {
-  return values.length > 0 ? values.join(", ") : ifEmpty;
+/**
+ * A schema that refuses an argument it does not declare, saying where the value belongs.
+ *
+ * Strict rather than stripping, which is Zod's default and was the defect: an unknown key vanished, so a
+ * caller who put an option beside `options` instead of inside it got the pattern's defaults and a
+ * successful-looking response. Strict here also makes the *published* schema say `additionalProperties:
+ * false`, which is what lets a client catch the mistake before the call is even sent.
+ *
+ * It lives in this file because what it produces is a refusal, and every refusal this adapter sends is
+ * worded here — the alternative is a schema in one file quietly deciding message text that every other
+ * error type has reviewed in another.
+ */
+export function strictObject<Shape extends z.ZodRawShape>(
+  shape: Shape,
+  /**
+   * What one of these keys is, for the refusal to call it by name. A nested object needs its own: told that
+   * `moduleStyle` "is not an argument of this tool", a caller would go looking for it at the top level,
+   * which is the mistake being corrected.
+   */
+  kind: "argument of this tool" | "convention" = "argument of this tool",
+): z.ZodObject<Shape> {
+  const accepted = Object.keys(shape);
+  return z.strictObject(shape, {
+    error: (issue) =>
+      issue.code === "unrecognized_keys"
+        ? unrecognisedArguments(issue.keys, accepted, kind)
+        : // Every other issue keeps the SDK's own wording, which already names the field and what it
+          // expected. Replacing that wholesale would mean re-deriving messages for every value type here.
+          undefined,
+  });
 }
 
 /**
- * Rebuilds the caller-facing message from the error's structured fields.
+ * The refusal for an argument this tool does not have (FR-051).
  *
- * Deliberately not `error.message`. Passing that through would make every future change to an engine
- * message a silent change to what this adapter sends a model, and would carry the engine's own
- * quoting of caller values with it.
+ * An option, an identifier and a convention are all things a caller legitimately wants to send; getting one
+ * into the wrong place is the commonest way to phrase a request wrongly, and it used to be answered with
+ * silence — so a caller who asked for offset pagination received cursor and was told nothing.
+ *
+ * Keys are caller-supplied, so they are quoted only when inert, like every other echoed value here.
  */
-function messageFor(error: EngineError): string {
-  if (error instanceof UnknownPatternError) {
-    return (
-      `No pattern named ${safe(error.requested)}. ` +
-      (error.nearest.length > 0
-        ? `Did you mean: ${error.nearest.join(", ")}?`
-        : `Call list_patterns to see which patterns exist.`)
+export function unrecognisedArguments(
+  keys: readonly string[],
+  accepted: readonly string[],
+  kind: "argument of this tool" | "convention" = "argument of this tool",
+): string {
+  // Only worth splitting out at the top level: inside `conventions` these names are what belongs there, so
+  // a key reaching this point is misspelled rather than misplaced.
+  const misplaced =
+    kind === "convention"
+      ? []
+      : keys.filter((key) => (CONVENTIONS as readonly string[]).includes(key));
+  const unknown = keys.filter((key) => !misplaced.includes(key));
+
+  const sentences: string[] = [];
+
+  if (misplaced.length > 0) {
+    sentences.push(
+      `${misplaced.map(safe).join(", ")} ${misplaced.length === 1 ? "is a project convention" : "are project conventions"}: ` +
+        `send ${misplaced.length === 1 ? "it" : "them"} inside "conventions".`,
     );
   }
 
-  if (error instanceof UnknownOptionError) {
-    return (
-      `Option ${safe(error.option)} is not declared for this pattern. ` +
-      `Declared options: ${list(error.declared, "(none)")}. ` +
-      `Call describe_pattern for what each one accepts.`
+  if (unknown.length > 0) {
+    sentences.push(
+      `${unknown.map(safe).join(", ")} ${describeKind(kind, unknown.length)}. ` +
+        (kind === "convention"
+          ? `The conventions you can set are ${list(accepted, "(none)")}.`
+          : `Its arguments are ${list(accepted, "(none)")}.${elsewhere(accepted)}`),
     );
   }
 
-  if (error instanceof InvalidOptionValueError) {
-    return (
-      `Option "${error.option}" does not accept that value. ` +
-      `Permitted values: ${list(error.permitted, "(none)")}.`
-    );
-  }
-
-  if (error instanceof MissingRequiredOptionError) {
-    return `Option "${error.option}" is required for this combination of options.`;
-  }
-
-  if (error instanceof InvalidIdentifierError) {
-    // The engine's text states the rule and quotes the offending name; the rule is the useful half.
-    return `Identifier "${error.field}" is not usable as a generated name: ${withoutQuotedValues(error.message)}`;
-  }
-
-  // Correctable errors not named above still state their rule in prose, and that prose is ours: the
-  // legality rule text is authored with the pattern and surfaced verbatim (FR-009).
-  if (isCorrectable(error)) return error.message;
-
-  // Not correctable — our defect. The message already withholds diagnostics, and this must never
-  // start returning them: compiler output names sandbox paths for files the caller never received.
-  return error.message;
+  return sentences.join(" ");
 }
 
 /**
- * Strips quoted spans from an engine message, so a rule can be quoted without the value it rejected.
- *
- * The engine truncates the values it quotes, which bounds the damage but does not remove it; a
- * 32-character span is ample room for an instruction.
+ * Where the two families of caller-supplied name belong — mentioned only by a tool that has somewhere to put
+ * them. `describe_pattern` takes a pattern and nothing else, and telling its caller about `options` and
+ * `identifiers` would send them looking for arguments that tool does not have.
  */
-function withoutQuotedValues(message: string): string {
-  return message.replace(/"[^"]*"/g, "the supplied value");
+function elsewhere(accepted: readonly string[]): string {
+  const homes = [
+    accepted.includes("options") ? `A pattern's own options go inside "options"` : undefined,
+    accepted.includes("identifiers") ? `names to generate around inside "identifiers"` : undefined,
+  ].filter((home): home is string => home !== undefined);
+
+  if (homes.length === 0) return "";
+
+  const sentence = homes.join(", and ");
+  return ` ${sentence[0]?.toUpperCase() ?? ""}${sentence.slice(1)}.`;
 }
+
+/** Agreement in number, written out because the plural of each phrase falls in a different place. */
+function describeKind(
+  kind: "argument of this tool" | "convention",
+  count: number,
+): string {
+  if (kind === "convention") {
+    return count === 1 ? "is not a convention" : "are not conventions";
+  }
+  return count === 1
+    ? "is not an argument of this tool"
+    : "are not arguments of this tool";
+}
+
+/**
+ * How this surface names what a caller should do next. The CLI's counterpart is in `cli/run.ts`.
+ *
+ * A model holding a tool list calls a tool; it has no shell. Naming the tools is what makes a refusal
+ * actionable in one turn (SC-007) rather than sending the caller to guess at a capability by
+ * description.
+ */
+const VOCABULARY = {
+  listCatalogue: "Call list_patterns",
+  describePattern: "Call describe_pattern",
+} as const;
 
 /**
  * Records the detail a caller is not shown, against the identifier they are.
@@ -135,36 +183,73 @@ function record(error: EngineError, log: Logger): void {
 export function safeMessage(error: unknown, log: Logger = stderrLog): string {
   if (error instanceof EngineError) {
     record(error, log);
-    return messageFor(error);
+    return messageFor(error, VOCABULARY);
   }
 
-  log(`internal_error: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`);
-  return "The server failed to handle this request. This is a defect, not a problem with your input.";
+  return unclassified(error, log);
 }
 
-export function toErrorResult(error: unknown, log: Logger = stderrLog): CallToolResult {
+/**
+ * The message for a failure nothing classified, with its detail recorded against the identifier it
+ * quotes.
+ *
+ * A `VerificationError` arrives already carrying a correlation identifier, and this is the other branch
+ * — the one where a defect escaped a boundary that should have named it. FR-038 does not exempt it, and
+ * it is the branch a caller is *most* likely to report, since its message tells them nothing else. It
+ * shipped without an identifier: the stack went to the log and the caller got prose, so an operator had
+ * a record nobody could point at.
+ *
+ * The identifier is derived from the error's own identity rather than generated, which is the same
+ * reasoning the engine records for the verification one: an arbitrary identifier would be unique and
+ * useless, while a derived one is reproducible, so two reports of the same defect arrive under the same
+ * reference and an operator can grep for it. The stack is excluded from what is hashed on purpose —
+ * including it would move the identifier whenever a line number did, which is exactly when two reports
+ * of one bug most need to agree.
+ */
+function unclassified(error: unknown, log: Logger): string {
+  const correlationId = referenceFor(error);
+
+  log(`internal_error ${correlationId}: ${detailOf(error)}`);
+
+  return (
+    "The server failed to handle this request. This is a defect, not a problem with your input. " +
+    `Reference ${correlationId} when reporting it.`
+  );
+}
+
+export function toErrorResult(
+  error: unknown,
+  log: Logger = stderrLog,
+): CallToolResult {
   if (error instanceof EngineError) {
     record(error, log);
     return {
       isError: true,
-      content: [{ type: "text", text: messageFor(error) }],
+      content: [{ type: "text", text: messageFor(error, VOCABULARY) }],
       // `structuredContent` is deliberately absent. The output schema describes a bundle, and there
       // is no bundle: the request was refused before anything was generated.
-      _meta: { "dev.patterns/errorCode": error.code, "dev.patterns/correctable": error.correctable },
+      _meta: {
+        [ERROR_CODE_META_KEY]: error.code,
+        [CORRECTABLE_META_KEY]: error.correctable,
+        // As reusable as a success and for the same reason: the request decides the answer, so the
+        // same bad request is refused identically. Saying nothing here would leave a caller retrying
+        // a call whose outcome cannot change, which is the expensive half of a refusal.
+        ...cacheHintMeta(),
+      },
     };
   }
 
   // Anything else escaped a boundary that should have classified it. Say so without speculating, and
   // log the stack — this is the case where we have no idea what happened and will need to find out.
-  log(`internal_error: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`);
   return {
     isError: true,
-    content: [
-      {
-        type: "text",
-        text: "The server failed to handle this request. This is a defect, not a problem with your input.",
-      },
-    ],
-    _meta: { "dev.patterns/errorCode": "internal_error", "dev.patterns/correctable": false },
+    content: [{ type: "text", text: unclassified(error, log) }],
+    // No cache hint, and this is the one result that must not carry one. A defect is not a fact about
+    // the request: the next attempt may well succeed, once the defect is fixed or the race that caused
+    // it does not recur. Caching it would make one failure permanent for as long as the entry lives.
+    _meta: {
+      [ERROR_CODE_META_KEY]: "internal_error",
+      [CORRECTABLE_META_KEY]: false,
+    },
   };
 }

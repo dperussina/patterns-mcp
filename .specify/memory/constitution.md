@@ -1,14 +1,26 @@
 <!--
 Sync Impact Report
-- Version change: 1.0.0 → 1.1.0 (MINOR: new principles + materially expanded guidance)
+- Version change: 1.1.0 → 1.1.1 (PATCH: provenance clarified for shared support files)
 - Modified principles:
-  - III. Compile-Verified Output → III. Compile- and Test-Verified Output
-    (generated tests must now execute and pass, not merely compile)
-  - I. Determinism Above All (clarified: toolchain versions belong in response
-    metadata, never in generated file content)
-- Added principles: IX. Caller-Convention Conformance, X. Dual Delivery, One Engine
-- Added sections: Content Licensing & Catalog Integrity, Toolchain Pinning
+  - IV. Library-Grade, Reusable Implementations (clarified: a support file emitted
+    identically by every pattern is marked shared instead of naming a pattern and an
+    options hash. Amended after a defect: a per-pattern header made the `node:test`
+    assertion shim differ per request, so two bundles unpacked into one directory
+    overwrote each other's copy and the loser's suite stopped compiling. The bullet's
+    purpose — letting a reader discover what is installed — is served either way,
+    because a shim shared by every pattern has no options to discover.)
+- Added principles: none
+- Added sections: none
 - Removed sections: none
+- Prior amendment (1.0.0 → 1.1.0, MINOR: new principles + materially expanded guidance):
+  - Modified principles:
+    - III. Compile-Verified Output → III. Compile- and Test-Verified Output
+      (generated tests must now execute and pass, not merely compile)
+    - I. Determinism Above All (clarified: toolchain versions belong in response
+      metadata, never in generated file content)
+  - Added principles: IX. Caller-Convention Conformance, X. Dual Delivery, One Engine
+  - Added sections: Content Licensing & Catalog Integrity, Toolchain Pinning
+  - Removed sections: none
 - Deferred TODOs:
   - TODO(PUBLISHED_PACKAGE_NAME): the npm package name and reverse-DNS registry
     name are not yet chosen. The repository currently uses the placeholder
@@ -88,7 +100,10 @@ Output is a module the caller adopts, not an example they read.
 - The cost of the Nth use of a pattern in one codebase MUST approach the cost of the binding
   alone.
 - Generated files MUST carry a provenance header naming the pattern and a deterministic hash of
-  the resolved options, so later readers and agents can discover what is already installed.
+  the resolved options, so later readers and agents can discover what is already installed. A
+  support file that every pattern emits at one path with byte-identical content MUST instead be
+  marked as shared and MUST NOT name a pattern or an options hash: it belongs to no single caller,
+  and attributing it to one makes bundles overwrite each other rather than coincide.
 
 *Rationale*: The value is not in producing a pattern once; it is in making that pattern cheap to
 reuse for the rest of the codebase's life. A generator that emits a fresh copy per call is a
@@ -278,4 +293,4 @@ wording.
 gates above are the enforcement mechanism. Any complexity that appears to violate a principle MUST
 carry a written justification in the pull request or be removed.
 
-**Version**: 1.1.0 | **Ratified**: 2026-08-09 | **Last Amended**: 2026-08-09
+**Version**: 1.1.1 | **Ratified**: 2026-08-09 | **Last Amended**: 2026-08-13

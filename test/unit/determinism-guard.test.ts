@@ -97,6 +97,8 @@ const pattern: GenerativePattern = generative({
   // actually honour, and an enum option is worth keeping in the hashing tests below.
   supportsSplit: true,
   variants: ["tagged"],
+  // Declared, because this fixture's requests carry an `entity` and an undeclared role is refused.
+  identifiers: [{ name: "entity", description: "The type being modelled." }],
   options: [
     {
       name: "emitScope",

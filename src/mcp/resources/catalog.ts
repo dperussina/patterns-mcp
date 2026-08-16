@@ -16,6 +16,7 @@ import { ResourceNotFoundError, ResourceTemplate } from "@modelcontextprotocol/s
 import type { McpServer, ReadResourceResult } from "@modelcontextprotocol/server";
 
 import { catalogOnce } from "../../engine/catalog/load.js";
+import { PUBLIC_CACHE_HINT } from "../cache.js";
 import { safeMessage } from "../errors.js";
 import { detail } from "../tools/describe.js";
 import { listing } from "../tools/list.js";
@@ -24,19 +25,6 @@ export const CATALOG_URI = "pattern://catalog";
 export const PATTERN_URI_TEMPLATE = "pattern://catalog/{name}";
 
 const JSON_MIME = "application/json";
-
-/**
- * A day, in milliseconds.
- *
- * The catalogue ships with the build, so it cannot change without a new package version and no TTL is
- * wrong on the data's own terms. The bound is chosen for the one case a longer one would break: an
- * upgraded deployment serving a client that still holds yesterday's answer. Over stdio even that cannot
- * happen — a new version is a new process — so this is the remote transport's number.
- */
-const CACHE_TTL_MS = 86_400_000;
-
-/** Cacheable by shared caches: the catalogue is public, identical for every caller, and carries no request state. */
-export const CATALOG_CACHE_HINT = { ttlMs: CACHE_TTL_MS, cacheScope: "public" } as const;
 
 /**
  * Two spaces, not none.
@@ -59,7 +47,7 @@ export function registerCatalogResources(server: McpServer): void {
         "Every pattern this server can generate, with the intent of each. Summaries only; read " +
         "pattern://catalog/{name} for one pattern's options and rules.",
       mimeType: JSON_MIME,
-      cacheHint: CATALOG_CACHE_HINT,
+      cacheHint: PUBLIC_CACHE_HINT,
     },
     async (uri): Promise<ReadResourceResult> => ({
       contents: [{ uri: uri.href, mimeType: JSON_MIME, text: json(await listing()) }],
@@ -103,7 +91,7 @@ export function registerCatalogResources(server: McpServer): void {
         "Full detail for one pattern: every option with its permitted values and default, and the " +
         "rules that will refuse a request. Mirrors describe_pattern.",
       mimeType: JSON_MIME,
-      cacheHint: CATALOG_CACHE_HINT,
+      cacheHint: PUBLIC_CACHE_HINT,
     },
     async (uri, variables): Promise<ReadResourceResult> => {
       const name = nameFrom(variables.name);

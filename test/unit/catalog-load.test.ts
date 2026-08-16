@@ -21,6 +21,7 @@ function pattern(name: string, relatedPatterns: string[] = []): unknown {
     intent: `Intent for ${name}.`,
     supportsSplit: false,
     variants: [],
+    identifiers: [],
     // Every generative pattern must declare this (data-model.md §"Shared base options"), so even a
     // fixture that cares only about names and relations has to carry it.
     options: [

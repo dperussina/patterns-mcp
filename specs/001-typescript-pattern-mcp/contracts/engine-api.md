@@ -57,13 +57,21 @@ the CLI:
 | `UnknownOptionError` | Option not declared for this pattern. Carries the valid option names. | yes |
 | `InvalidOptionValueError` | Value outside the declared space. Carries permitted values. | yes |
 | `IllegalCombinationError` | A legality rule matched. Carries the rule text and alternatives verbatim (FR-009). | yes |
-| `InvalidIdentifierError` | Failed the identifier pattern, length cap, or reserved-word denylist. | yes |
+| `InvalidIdentifierError` | Failed the identifier pattern, length cap, reserved-word denylist, plural derivation, or collided with a name the requested pattern writes for itself (FR-052). Carries the role, the refused value, and the rule free of both, so an adapter can compose its own sentence without re-deriving the constraint or filtering this one. | yes |
 | `MissingRequiredOptionError` | e.g. `coreModule` absent when `emitScope` is `binding-only`. | yes |
+| `SplitUnsupportedError` | `emitScope` given to a pattern that emits a single module. | yes |
+| `FormatConfigError` | A formatter option outside the allowlist, or a value a settable option cannot take — one that would make output depend on its input, or a print width the generated code cannot be verified at. Carries the configurable options, and the reason when it is the value rather than the option that is refused, so the caller's message can distinguish the two. | yes |
 | `VerificationError` | Generated bundle failed to compile or its tests failed. **Always our defect.** Carries diagnostics for our logs, not for the caller. | no |
 
 Correctable errors are the interesting ones: their messages must let an agent fix the call without an
 additional discovery round trip (SC-007). Every one therefore names the field, states the rule, and
 enumerates alternatives.
+
+This table is the taxonomy adapters branch on, and membership in it is what makes an error correctable in
+practice rather than in principle. `FormatConfigError` is listed after an amendment: it was declared beside
+the formatter allowlist that throws it and extended plain `Error`, so it matched no branch, and a caller
+who mistyped a Prettier option was told the server had a defect while the message enumerating the valid
+ones was discarded. An error class defined outside this taxonomy is one nothing thinks to classify.
 
 ## Determinism obligations on engine internals
 
@@ -77,3 +85,10 @@ These are the concrete rules that make Principle I hold, and each has a correspo
 - The provenance header contains pattern identity and the options hash only. Generator and toolchain
   versions live in response metadata, because embedding them would rewrite every generated file on
   every release and destroy diff-stability (FR-021).
+- That hash covers what can shape the file it heads, which is not always the whole request (FR-050). Every
+  file's omits `includeTests`, which selects a suite rather than appearing in one. The `core` and `types`
+  files of a pattern offering `emitScope` additionally omit the identifiers, `emitScope` and `coreModule`:
+  that machinery comes back with every `full` request, so hashing the entity into it made two entities'
+  requests disagree about a file they both install. `headerOf` is exported beside `withoutHeader` for
+  callers comparing attributions, since comparing whole files cannot distinguish a header that has stopped
+  distinguishing anything from one that never needed to.

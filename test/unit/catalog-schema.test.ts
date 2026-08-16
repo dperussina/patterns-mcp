@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  ALLOWED_LICENSES,
   LegalityRuleSchema,
   OptionSchema,
   PatternSchema,
@@ -50,6 +51,7 @@ const generativePattern = {
   kind: "generative",
   supportsSplit: true,
   variants: [],
+  identifiers: [],
   options: [enumOption, emitScopeOption, includeTestsOption],
   legality: [],
 };
@@ -141,6 +143,46 @@ describe("LegalityRuleSchema", () => {
       alternatives: ["core-only"],
     });
     expect(result.success).toBe(false);
+  });
+});
+
+/**
+ * The allowlist is what SC-012 rests on, and it is the one part of the licence rule nothing checks.
+ *
+ * A pattern's licence is validated against this list, so an entry can only carry terms named here; but
+ * the list itself is just an array, and adding `CC-BY-NC-4.0` to it would read as widening support
+ * rather than as poisoning commercial redistribution of the whole catalogue. Classifying each term
+ * explicitly means a new one has to be classified before the gate goes green, which is the moment to
+ * notice.
+ */
+describe("ALLOWED_LICENSES", () => {
+  const PERMITS_COMMERCIAL_MODIFICATION = new Set([
+    // Our own work, under this repository's licence.
+    "original",
+    // Permissive: use, modify, and sell, with attribution at most.
+    "MIT",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    // Public-domain dedication, or attribution-only.
+    "CC0-1.0",
+    "CC-BY-4.0",
+    "Unlicense",
+  ]);
+
+  it("names only terms permitting commercial use and modification", () => {
+    const unclassified = ALLOWED_LICENSES.filter(
+      (license) => !PERMITS_COMMERCIAL_MODIFICATION.has(license),
+    );
+    expect(unclassified).toEqual([]);
+  });
+
+  it("classifies nothing it does not allow, so the two lists cannot drift apart", () => {
+    const stale = [...PERMITS_COMMERCIAL_MODIFICATION].filter(
+      (license) => !ALLOWED_LICENSES.includes(license as never),
+    );
+    expect(stale).toEqual([]);
   });
 });
 

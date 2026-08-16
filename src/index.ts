@@ -14,7 +14,12 @@ import { catalogOnce } from "./engine/catalog/load.js";
 import type { PatternDetail } from "./engine/catalog/describe.js";
 
 export { generate, disposeEngine } from "./engine/generate/index.js";
-export type { GenerateRequest, GenerateResult, Bundle } from "./engine/generate/index.js";
+export type {
+  GenerateRequest,
+  GenerateResult,
+  Bundle,
+  Advisory,
+} from "./engine/generate/index.js";
 
 export type { ListFilters, PatternSummary } from "./engine/catalog/list.js";
 export type { PatternDetail } from "./engine/catalog/describe.js";
@@ -36,6 +41,29 @@ export async function listPatterns(filter?: ListFilters): Promise<readonly Patte
   return listIn(await catalogOnce(), filter);
 }
 
+export interface Listing {
+  readonly patterns: readonly PatternSummary[];
+  /**
+   * How many matched. `patterns.length` today, and reported separately because it is the field that
+   * stays meaningful if a response ever has to be truncated.
+   */
+  readonly total: number;
+}
+
+/**
+ * A listing as every surface returns it.
+ *
+ * The envelope is here rather than in an adapter because three places answer this question — the MCP
+ * tool, the MCP catalogue resource, and the CLI — and they must not answer it differently. It lived in
+ * the MCP tool while the CLI printed a bare array under `--json`, so the two surfaces disagreed about
+ * the shape of the one response a script is most likely to parse, and the byte-for-byte parity test
+ * (T073) is what found it.
+ */
+export async function listCatalogue(filter?: ListFilters): Promise<Listing> {
+  const patterns = await listPatterns(filter);
+  return { patterns, total: patterns.length };
+}
+
 /** @throws UnknownPatternError naming the nearest catalogue entries. */
 export async function describePattern(name: string): Promise<PatternDetail> {
   return describeIn(await catalogOnce(), name);
@@ -54,9 +82,10 @@ export {
   IllegalCombinationError,
   InvalidIdentifierError,
   MissingRequiredOptionError,
+  UnsupportedRuntimeError,
   VerificationError,
   isCorrectable,
 } from "./engine/errors.js";
 export type { ErrorCode } from "./engine/errors.js";
 
-export const version = "0.1.0";
+export { VERSION as version } from "./version.js";

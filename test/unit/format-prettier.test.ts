@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
+import { FormatConfigError } from "../../src/engine/errors.js";
 import {
-  FormatConfigError,
   FormatError,
   formatSource,
   mergeFormatOptions,
@@ -143,6 +143,24 @@ describe("caller configuration is an allowlist", () => {
 
   it.each(["lf", "crlf"])("accepts the explicit endOfLine %s", (value) => {
     expect(mergeFormatOptions({ endOfLine: value }).endOfLine).toBe(value);
+  });
+
+  /**
+   * A width narrower than the code can be proven at is refused, rather than attempted and blamed on us.
+   *
+   * A `@ts-expect-error` asserts about the line below it, so a width that wraps that line moves the
+   * assertion off the expression it was written for: the directive is reported unused, the error it was
+   * suppressing escapes, and the pattern fails its own verification. Three patterns do that below 40, and
+   * what the caller received was `Generated code failed to compile. This is a defect in the pattern` —
+   * true of every other cause of that message and useless here, since the one thing that would fix it is
+   * the setting they chose.
+   */
+  it("refuses a print width narrower than the generated code is verified at", () => {
+    expect(() => mergeFormatOptions({ printWidth: 30 })).toThrow(/narrowest width/);
+  });
+
+  it.each([40, 80, 120])("accepts the print width %i", (printWidth) => {
+    expect(mergeFormatOptions({ printWidth }).printWidth).toBe(printWidth);
   });
 
   it("accepts every allowlisted option", () => {

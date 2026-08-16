@@ -240,12 +240,45 @@ command-line surfaces and confirm byte-identical results.
 - **FR-017**: For patterns that separate shared machinery from per-type bindings, callers MUST be
   able to request the complete set, the machinery alone, or a binding alone.
 - **FR-018**: When requesting a binding alone, callers MUST be able to identify where the existing
-  machinery lives, and the generated binding MUST reference that location.
+  machinery lives, and the generated binding MUST reference that location. Any specifier a project can
+  legitimately write MUST be accepted, including one that climbs out of the binding's own directory — a
+  binding in `src/orders` reaching machinery in `src/lib` has no other way to name it. Amended after a
+  defect: a climb was refused, because verification writes the regenerated machinery at the path the
+  specifier resolves to and a bundle placed at the sandbox root resolved it above the root. The layout the
+  split exists to serve was therefore the one layout it could not serve, and the refusal listed only the
+  shapes it did accept, so a caller reading it could not tell that their specifier was valid and their
+  layout unsupported.
 - **FR-019**: The catalog MUST record, per pattern, whether it supports a machinery/binding split.
 - **FR-020**: Generated files MUST carry a provenance marker identifying the producing pattern and a
-  deterministic representation of the resolved options.
+  deterministic representation of the resolved options. A *shared support file* — one whose content is
+  byte-identical for every pattern and every option set, currently only the `node:test` assertion shim —
+  MUST instead be marked as shared, and MUST NOT name a pattern or an options hash. Amended after a
+  defect: attributing such a file to whichever request happened to emit it made its bytes vary per
+  request, so two bundles unpacked into one directory overwrote each other's copy and the first bundle's
+  suite stopped compiling. Each bundle was verified alone and each was correct alone.
 - **FR-021**: Provenance markers MUST NOT embed values that change between service releases without
   a change in caller input.
+- **FR-050**: A file's provenance marker MUST identify only inputs that can shape that file. Two inputs
+  cannot: an option that selects which files a request gets back rather than what any of them says, and —
+  for the shared machinery of a pattern that splits machinery from bindings — the caller's identifiers,
+  which that half is defined not to know. Added after a defect of the same shape as FR-020, reached by a
+  second *request* rather than a second pattern: the machinery comes back with every `full` request, so a
+  project with two repositories was sent `repository-core.ts` twice, byte-different in the header alone
+  because the hash covered the entity. Declining tests did the same to every file that survived. Beyond
+  the overwriting, this disabled the check the marker exists for — the option-match check in research.md
+  §11 compares an installed core's marker against what a new binding needs, and two cores generated under
+  identical options did not agree. The marker MUST still distinguish machinery that genuinely differs: a
+  hash that stopped moving would make every core look compatible with every binding, which is the same
+  failure with the symptom hidden.
+- **FR-048**: A file path MUST identify the pattern that produced it, so that no two patterns can emit
+  the same path with different contents for any name a caller supplies. Where a pattern names a file
+  after the caller's type, the pattern's own noun MUST remain in the name. Added after a defect of the
+  same shape as FR-020, reached from the other direction: `typestate` named its file after the bare
+  subject, and every pattern that appends a noun drops the repetition when the subject already ends in
+  it (FR-046), so a `typestate` and a `branded-type` bundle for `OrderId` both claimed `order-id.ts`
+  with different contents — as did `OrderRepository`, `OrderEmitter`, `Result` and `Event` against their
+  patterns. Unpacked together, whichever was written last won. Keeping the noun also stops the service
+  claiming `order.ts`, which is the name the caller's own type is most likely to already hold.
 
 ### Functional Requirements — Guidance
 
@@ -261,6 +294,15 @@ command-line surfaces and confirm byte-identical results.
 - **FR-025**: Verification MUST be performed under the caller's supplied conventions when provided.
 - **FR-026**: Absent caller conventions, the strictest reasonable defaults MUST apply and MUST be
   reported.
+- **FR-049**: A convention the generated code cannot be verified under MUST be refused as the caller's to
+  correct, naming the setting and why that value in particular, rather than attempted and reported as a
+  pattern defect. Print width is the case this was added for: a type-level assertion applies to the line
+  below it, so a width that wraps that line moves the assertion off the expression it was written for, and
+  the directive is then reported unused while the error it suppressed escapes. Two patterns broke at 40,
+  which is fixed; three more break below it, so 40 is the floor and narrower is refused. A refusal a
+  caller can act on is the point: `Generated code failed to compile. This is a defect in the pattern` is
+  true of every other cause of that failure and useless here, where the one thing that would fix it is
+  the setting they chose.
 
 ### Functional Requirements — Interface and Delivery
 
@@ -275,18 +317,59 @@ command-line surfaces and confirm byte-identical results.
 - **FR-031**: The service MUST hold no state between requests; any cross-request continuity MUST be
   carried by explicit caller-supplied values.
 
+- **FR-051**: A request naming a field the interface does not accept MUST be refused, and the refusal MUST
+  say where the value belongs when it belongs somewhere. Added after a defect: options, identifiers and
+  conventions are three families of caller-supplied value with three destinations, and a value written
+  outside all three was *discarded* — so a caller who asked for offset pagination beside `options` rather
+  than inside it received cursor pagination and a successful-looking response. An undeclared option is
+  refused and a misplaced one was ignored, which is one question answered two ways, and the silent answer
+  is the one that returns wrong code. The published schema MUST forbid unknown fields as well, so a client
+  can catch the mistake before the call is sent. The refusal MUST offer only destinations the tool it came
+  from actually has, and MUST treat a field name as a caller-supplied value under FR-035 — a key can carry
+  an injected instruction as easily as a value can.
+
 ### Functional Requirements — Safety
 
 - **FR-032**: Every caller-supplied identifier MUST be validated against a strict pattern and a
-  reserved-word denylist before it reaches generation, and every string MUST be length-limited.
+  reserved-word denylist before it reaches generation, and every string MUST be length-limited. The set
+  of identifier *roles* a pattern accepts MUST be declared in the catalog, published through the
+  describe tool, and closed: a role the pattern does not declare MUST be refused with the declared roles
+  named, and a pattern declaring none MUST refuse any. Amended after a defect: an undeclared role was
+  accepted and ignored, so a call that changed nothing read as success — and because the role still
+  entered the options hash, the six patterns that read no identifier returned byte-different provenance
+  headers over a name that appeared in none of their files, which is Principle I failing silently.
 - **FR-033**: Output file paths MUST be derived from validated inputs; the service MUST NOT accept
   caller-supplied paths.
-- **FR-034**: The service MUST NOT execute caller-supplied content, and generated code MUST NOT
-  contain network calls, credentials, or install-time hooks.
+- **FR-034**: The service MUST NOT execute caller-supplied content. Generated code MUST NOT contain
+  credentials or install-time hooks, and MUST NOT reach the network except where the requested pattern
+  declares that reaching it is the pattern's subject. A declaring pattern MUST say so in its catalogue
+  entry, MUST confine the call to a boundary the caller supplies or replaces — a `fetch`-shaped parameter,
+  which may default to the platform's but must be a parameter — and MUST NOT contact a host the caller did
+  not choose. A default host is permitted only where choosing it *is* the request: an adapter asked for in
+  a named provider's wire format may default to that provider's documented endpoint, and MUST accept an
+  override. What is forbidden is a host that appears in neither the caller's arguments nor their choice of
+  provider. Amended after the
+  original wording was read literally against the catalogue: `gateway` and `chat-model-port` exist to give
+  a caller a typed edge around an HTTP call, so a blanket ban made the two patterns most in need of a
+  reviewed shape the two the requirement said could not exist. What the ban was protecting against is
+  code that calls out *without the caller knowing*, and that is what the narrower wording forbids. The
+  practical difference is testable, and is tested: a declared boundary is injectable, so the emitted tests
+  pass a fake transport rather than dialling, and the verification sandbox replaces every network entry
+  point the runtime offers with one that throws — so a pattern whose tests only *appeared* to stay offline
+  would fail verification rather than reach a host. That denial is a preload the sandbox installs, not a
+  property of the runtime's permission model, which governs the filesystem, child processes, workers and
+  addons and leaves sockets open; it was assumed otherwise until a probe under the real flags resolved a
+  real hostname.
 - **FR-035**: Caller-supplied values MUST be escaped or elided before appearing in any message
   returned to a caller.
 - **FR-036**: Catalog content MUST be original or under terms permitting commercial redistribution
-  and modification, and each entry MUST record its provenance.
+  and modification, and each entry MUST record its provenance. Emitted code MUST carry no licence
+  condition of its own: the product is code a caller pastes into their own repository, and a notice
+  obliged to travel with a file that is meant to be edited as the caller's own would make the pasting
+  worse for no benefit to anyone. The licence therefore states this explicitly rather than leaving the
+  tool's own terms to be inferred over the output, and the claim it makes about the catalogue MUST be
+  checked against the catalogue rather than trusted, since a borrowed implementation is a permitted
+  addition that would silently falsify it.
 - **FR-037**: Remote connections MUST validate the declared origin and target host of each request,
   MUST reject a request whose declared operation contradicts its content, MUST refuse superseded
   request forms rather than serving them, and MUST NOT create, echo, or read session identifiers.
@@ -294,6 +377,33 @@ command-line surfaces and confirm byte-identical results.
   be returned to callers; an internal failure MUST be reported as a short message plus a correlation
   identifier.
 - **FR-039**: Schema validation MUST NOT resolve external references.
+- **FR-053**: The service MUST NOT serve on a runtime that cannot enforce the sandbox its own
+  verification depends on, and MUST say what is required and what is running. Generated tests execute
+  under the host runtime's permission model, which is what confines them to the filesystem they were given
+  and denies them a child process — the network half of FR-034 is closed separately, because the permission
+  model does not cover sockets. Where the flag enabling it is absent, the child process fails before
+  reading the test file
+  and the failure is indistinguishable, from inside, from a test that did not pass. Added after a
+  defect: the runtime floor was declared as an installable range and enforced nowhere, so an older host
+  answered every request carrying tests with "this is a defect in the pattern, not in your request" and
+  a correlation identifier for a bug that did not exist — misattributing the operator's environment to
+  the catalogue, and inviting a report nobody could act on. Refusing at startup is required over serving
+  the subset that still works: a request without tests would succeed on such a host, and a service whose
+  central guarantee silently does not hold is worse than one that is plainly absent. The floor MUST be
+  stated in one place that the installable range, the startup check, and the engine all read.
+- **FR-054**: Metadata the service attaches to its own results MUST be named under a namespace the
+  publisher holds, and MUST NOT be named under one the protocol reserves for itself. The reserved
+  namespaces are identified by structure rather than by a list — any prefix whose second label is
+  `modelcontextprotocol` or `mcp` — and only the protocol and its official extensions allocate names
+  there. Added after a defect: the service annotated results with a key in the reserved namespace, on the
+  reasoning that borrowing the protocol's vocabulary would spare a client from learning a second one. The
+  protocol defines no such key, so no client could recognise it, and a name sitting where a later revision
+  is entitled to define its own meaning would not go on being ignored — it would be *misread*, which is
+  the one outcome worse than silence. Conformance to the targeted revision MUST be observable in tests
+  against the transport actually served, including the requests it requires, the fields it requires on
+  every result, the error codes it retires, and the methods it removes; and where the service serves more
+  than one protocol era, each era MUST be exercised as such, since the era is chosen by how a connection
+  opens and a suite that only ever opened one of them proves nothing about the other.
 
 ### Functional Requirements — Naming
 
@@ -302,12 +412,96 @@ command-line surfaces and confirm byte-identical results.
   third-party library whose behaviour can change on upgrade, and MUST resolve any given name to exactly
   one documented result.
 - **FR-041**: A name the derivation table cannot resolve confidently MUST be refused with the rule
-  stated, rather than approximated.
+  stated, rather than approximated. The refusal MUST reach the caller. Amended after a defect: it was
+  produced correctly and then discarded by the pipeline, which fell back to generic names — a request
+  for a `Staff` repository returned an `EntityRepository`, with nothing said. An ending counts as
+  doubtful only where English is genuinely doubtful, not merely where a Latin plural exists: treating
+  every `-ion` noun as unresolvable refused thirteen of the commonest nouns a domain has, so making the
+  refusal visible without narrowing the rule would have been a regression rather than a fix.
+- **FR-044**: A noun whose plural equals its singular MUST be recognised as such rather than given an
+  invented plural. Added after an audit prompted by one wrong answer, `Aircrafts`: the list of such
+  words held seven entries and the class has scores, so nearly every candidate tried was pluralised
+  confidently and wrongly — `Corps` became `Corpses`, `Middleware` became `Middlewares`, `Analytics`
+  became `Analyticses`. This is the worse of the two failures, because a doubtful ending is refused and
+  says why, whereas these returned working code carrying a word that is not English. The list cannot be
+  complete, so two endings that are reliably mass nouns are covered as groups, `-ware` and `-craft`.
+  Where an ending is genuinely both — `-ics` is a field name and also the plural of an `-ic` noun, so
+  `Mechanics` is at once invariant and a plural — it MUST be treated as doubtful and refused, with the
+  field names resolving from the table. Amended after the same audit reached names that are already
+  plural: a bare `-s` cannot be told apart from a plural, so `Orders` — among the likeliest things
+  anyone hands a repository — became `orderses`, as the collection name rather than only a type, and it
+  MUST now be refused. A double `s` is exempt because nothing about `classes` or `addresses` is
+  doubtful, and the genuine singulars that remain, `alias` and `lens` among them, resolve from the
+  table like every other exception. A confidently wrong plural of the same kind MUST be fixed as a rule
+  where English has one: a single `z` after a vowel doubles, so `Quiz` gives `Quizzes` and not the
+  `Quizes` the `-s`/`-x`/`-z` rule produced.
+- **FR-045**: An identifier MUST be cased from the words it is made of, never by changing a single
+  character of it. Added after two defects found by sweeping names that differ from `Order` in shape
+  rather than in length. Lowercasing the whole subject ran the words together, so a `WebhookEvent`
+  request exported `webhookeventId` and titled a test "accepts a well-formed webhookevent";
+  lowercasing only the leading character mangles every acronym, so an `APIKey` request exported a
+  factory named `aPIKeyId`. Both compiled, both passed the generated tests, and neither is reachable
+  with a single-word name whose every casing coincides — which is why the conformance sweep MUST
+  include a multi-word name and an acronym, with the generated tests, rather than a length case alone.
+- **FR-046**: Where a pattern appends its own noun to the caller's name, a repetition MUST be dropped
+  wherever the two names meet, not only where the noun is the whole of the overlap. Amended after the
+  rule that gave `OrderId` instead of `OrderIdId` was found to be too narrow: `Event` is the likeliest
+  subject anyone gives an emitter, and it produced `EventEvents` and `EventEventName`. A noun matching
+  the name's plural counts as the same word. The collapse MUST NOT be applied where the pattern needs
+  both names to differ — `typestate` names a class after the subject and a union after its states, so
+  a `State` subject keeps `StateState` rather than colliding.
+- **FR-047**: A refused identifier MUST name the value that was refused, or say that it is withholding
+  it, and state the rule once. Added after a defect: the caller-facing message was produced by
+  stripping every quoted span out of the engine's sentence, which removed the value and left the role
+  quoted where the value belonged — a request for an `Error` entity was answered "entity the supplied
+  value is reserved and cannot be used as a generated name", with the opening clause repeated at the
+  end and the offending name absent. A value MUST be echoed only when it is inert, which a value that
+  passed the identifier charset always is, and described otherwise: the reason the stripping existed
+  is real, since a value that fails that charset can carry prose and prose in a tool result is an
+  instruction to whatever reads it next.
+- **FR-052**: A name a pattern writes for itself MUST NOT be able to break a caller's request. Where the
+  colliding name of ours belongs to an example or a suite, the generated file MUST step aside and say in
+  the file why it is not called what was asked for; where it belongs to something the caller builds
+  against, the request MUST be refused as a collision. Added after a sweep that fed every pattern the
+  names it writes literally, and the nouns it appends, back to it as the caller's name: seven patterns
+  produced a bundle that failed its own compiler, and three of the names were ordinary domain nouns.
+  `branded-type` declares a second brand called `CustomerId` so its example can show that two brands do
+  not interchange, so `Customer` was unusable; `unit-of-work` exports a seam called `Store`, so `Store`
+  was unusable; the collapse of FR-046 derives the record type of an `AuditRecord` as `AuditRecord`, so
+  an example declaring a stand-in beside it declared the same name twice, in that pattern and in
+  `repository` both. Each was answered "this is a defect in the pattern, not in your request" — true,
+  and no use to a caller holding a name they cannot use and no way to know why. A refusal MUST remain
+  necessary: a name declared as emitted but no longer written is a request the service could serve and
+  declines to. A collision MUST be judged on the name that reaches the code rather than on the spelling
+  sent, since the two casings are one request: comparing spellings accepted `repository` where
+  `Repository` was refused, and six of the thirteen refused names had a lowercase spelling that got
+  through to a bundle that would not compile. An acronym is not the same name — `REPOSITORY` survives
+  the derivation as itself — and MUST NOT be refused for resembling one. The names considered MUST include
+  those a pattern writes only under a non-default option, since a branch writes a name as literally as the
+  defaults do: reading one render at the defaults missed `specification`'s `RefinedBy`, written only under
+  `composition=free`, and `unit-of-work`'s `KeyChangedError`, thrown only under `tracking=snapshot`. A name
+  that stays refused MUST be discoverable before it is sent, since FR-009's reasoning applies here as much
+  as to a legality rule: a caller who learns a name is taken by being refused for it has spent a turn on
+  something the service knew before they asked. `describe_pattern` therefore states them, and the
+  disclosure MUST agree with the refusal rather than merely exist.
+- **FR-043**: Every pattern MUST generate correctly for the longest identifier the validator accepts,
+  not only for a short one. Added after a defect: identifier length decides where generated code wraps,
+  and a wrapped statement can carry a `@ts-expect-error` away from the error it asserts — the directive
+  then suppresses nothing, the escaped error is reported, and the pattern fails its own verification for
+  no reason but the caller's choice of noun. Three patterns did this, the first at seven characters.
 
 ### Functional Requirements — Caching
 
 - **FR-042**: Every response MUST carry an explicit cacheability statement reflecting its actual
-  reusability, rather than defaulting to the most conservative available value.
+  reusability, rather than defaulting to the most conservative available value. A refusal is included:
+  the request decides it, so the same request is refused identically, and leaving it unstated invites a
+  caller to retry a call whose outcome cannot change. The single exception is a failure the service could
+  not classify — a defect is not a fact about the request, the next attempt may well succeed, and marking
+  it reusable would make one bad moment permanent for as long as the entry lives. Amended after a defect:
+  the statement was carried on tool *descriptors* only, which a client reads once when discovering what
+  exists, so a caller holding a generated bundle had nothing describing the answer in front of them and
+  had to fall back on the transport's own conservative default — which describes a service whose answers
+  vary by caller and expire at once, the opposite of this one.
 
 ### Key Entities
 

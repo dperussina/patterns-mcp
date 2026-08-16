@@ -19,7 +19,12 @@ describe("the correctable / internal split", () => {
     new UnknownOptionError("erorMode", ["errorMode"]),
     new InvalidOptionValueError("errorMode", "panic", ["result", "throw"]),
     new IllegalCombinationError("Rule text.", ["full"]),
-    new InvalidIdentifierError("entityName", 'entityName "class" is reserved'),
+    new InvalidIdentifierError(
+      "entityName",
+      "class",
+      'entityName "class" is reserved',
+      "That name is reserved.",
+    ),
     new MissingRequiredOptionError(
       "coreModule",
       'when emitScope is "binding-only"',
@@ -161,12 +166,19 @@ describe("messages let a caller fix the call without another round trip", () => 
     expect(error.alternatives).toEqual(["full", "core-only"]);
   });
 
-  it("names the field for an invalid identifier and keeps the rule that was broken", () => {
+  it("names the field, the value and the rule for an invalid identifier", () => {
     const error = new InvalidIdentifierError(
       "entityName",
+      "class",
       'entityName "class" is reserved',
+      "That name is reserved.",
     );
     expect(error.field).toBe("entityName");
+    // The value and the rule are carried separately so an adapter can compose its own sentence
+    // without either re-deriving the constraint or filtering this one. Filtering it is what produced
+    // a refusal that named the role where the value belonged and never said what was refused.
+    expect(error.value).toBe("class");
+    expect(error.rule).toBe("That name is reserved.");
     expect(error.message).toContain("is reserved");
   });
 

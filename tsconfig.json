@@ -2,8 +2,8 @@
   "compilerOptions": {
     "target": "ES2022",
     // ES2023 APIs (notably `Array#toSorted`) are declared while the syntax target
-    // stays at ES2022. Node 20 — the floor `engines` already sets — ships them,
-    // and the non-mutating forms are what the lint rules require.
+    // stays at ES2022. Node 22.13 — the floor `engines` sets — ships them, and
+    // the non-mutating forms are what the lint rules require.
     "lib": ["ES2023"],
     "module": "ESNext",
     "moduleResolution": "bundler",

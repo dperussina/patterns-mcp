@@ -16,6 +16,7 @@ import type { Transport } from "@modelcontextprotocol/server";
 import { serveStdio, StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 import type { StdioServerHandle } from "@modelcontextprotocol/server/stdio";
 
+import { MINIMUM_NODE, runtimeSupported } from "../../engine/verify/runtime.js";
 import { stderrLog } from "../log.js";
 import type { Logger } from "../log.js";
 import { createServer } from "../server.js";
@@ -65,6 +66,31 @@ export function routeConsoleToStderr(): () => void {
   return () => {
     for (const [name, method] of original) console[name] = method;
   };
+}
+
+/**
+ * Why this process must not serve, or `undefined` when it may.
+ *
+ * Refusing to start is a deliberate choice over serving what this runtime can still do. A bundle
+ * requested with tests omitted would generate on any Node, so the server could accept half its
+ * requests — but the promise it makes is that what it returns has been proved to work, and one whose
+ * default request always fails is worse than one that is plainly absent. This way the operator learns
+ * at the moment they are watching the process, rather than from a caller reporting a defect in a
+ * pattern that has none.
+ *
+ * Exported for the test, which cannot spawn a Node it does not have installed.
+ */
+export function runtimeRefusal(
+  version: string = process.versions.node,
+): string | undefined {
+  if (runtimeSupported(version)) return undefined;
+
+  return (
+    `Refusing to start: this server needs Node ${MINIMUM_NODE} or newer and this is Node ${version}. ` +
+    `Every generated bundle is proved by running its tests inside Node's permission model, and the ` +
+    `flag that enables it is not recognised here, so each request would be answered with a defect ` +
+    `report about the pattern rather than with code. Upgrade Node and start it again.`
+  );
 }
 
 /**

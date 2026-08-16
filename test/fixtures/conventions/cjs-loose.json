@@ -1,0 +1,13 @@
+{
+  "strictness": "loose",
+  "moduleStyle": "cjs",
+  "importExtensions": "none",
+  "typeImports": "inline",
+  "testFramework": "node-test",
+  "runtime": "node",
+  "prettierConfig": {
+    "printWidth": 100,
+    "singleQuote": true,
+    "semi": true
+  }
+}

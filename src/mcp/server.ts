@@ -9,7 +9,9 @@
 import { McpServer } from "@modelcontextprotocol/server";
 
 import { disposeEngine } from "../engine/generate/index.js";
-import { CATALOG_CACHE_HINT, registerCatalogResources } from "./resources/catalog.js";
+import { SERVER_NAME, SERVER_TITLE, VERSION } from "../version.js";
+import { PROTOCOL_CACHE_HINTS, cacheHintMeta } from "./cache.js";
+import { registerCatalogResources } from "./resources/catalog.js";
 import { describeInput, describeOutput, handleDescribe } from "./tools/describe.js";
 import { generateInput, generateOutput, handleGenerate } from "./tools/generate.js";
 import { handleList, listInput, listOutput } from "./tools/list.js";
@@ -30,12 +32,11 @@ const READ_ONLY = {
  * an optimisation: the same request cannot produce a different bundle, so a cached response cannot be
  * stale (Principle I).
  *
- * Carried in `_meta` rather than as a protocol cache hint because `tools/call` is not one of the
- * revision's cacheable results — that closed list covers the various `list` operations,
- * `resources/read`, and `server/discover`. So this is an annotation a client may act on, not a protocol
- * guarantee, and the cache hints that *are* protocol-level are declared on the server below.
+ * On the tool descriptor, so a client can plan before it calls. The same hint goes on each result, where
+ * it describes the answer actually in hand — see `cache.ts` for why `tools/call` needs both and cannot
+ * use the protocol's own fields for either.
  */
-const CACHEABLE = { "io.modelcontextprotocol/cache-hint": { cacheable: true, scope: "public" } };
+const CACHEABLE = cacheHintMeta();
 
 /**
  * The catalogue ships with the build and generation is a pure function of its input, so nothing this
@@ -63,22 +64,21 @@ const INSTRUCTIONS =
 
 export function createServer(): McpServer {
   const server = new McpServer(
-    { name: "patterns", version: "0.1.0" },
+    { name: SERVER_NAME, title: SERVER_TITLE, version: VERSION },
     {
       capabilities: CAPABILITIES,
       instructions: INSTRUCTIONS,
       /**
-       * Every list the SDK builds itself describes build-time data, so all of them get the catalogue's
-       * hint. `resources/read` is included as the per-operation fallback; individual resources set the
-       * same hint, and this makes a resource added later cacheable by default rather than by memory.
+       * Every list the SDK builds itself describes build-time data, so all of them get the same hint.
+       * `resources/read` is included as the per-operation fallback; individual resources set it too, and
+       * declaring it here makes a resource added later cacheable by default rather than by memory.
+       *
+       * These are the protocol's own fields, and the SDK emits them on a modern session — a legacy
+       * client, which is what the SDK's own client is unless it is told otherwise, sees none of them and
+       * has no field to read them from. `cache-hints.test.ts` therefore checks the wire on a session
+       * pinned to the revision, and the declaration against the revision's closed list besides.
        */
-      cacheHints: {
-        "tools/list": CATALOG_CACHE_HINT,
-        "resources/list": CATALOG_CACHE_HINT,
-        "resources/templates/list": CATALOG_CACHE_HINT,
-        "resources/read": CATALOG_CACHE_HINT,
-        "server/discover": CATALOG_CACHE_HINT,
-      },
+      cacheHints: PROTOCOL_CACHE_HINTS,
     },
   );
 

@@ -16,19 +16,21 @@
 import { catalogOnce } from "../catalog/load.js";
 import type { Catalog } from "../catalog/load.js";
 import { nearestNames } from "../catalog/nearest.js";
-import type { GenerativePattern } from "../catalog/schema.js";
-import { UnknownPatternError, InvalidOptionValueError, VerificationError } from "../errors.js";
+import type { AdvisoryPattern, GenerativePattern, Pattern } from "../catalog/schema.js";
+import {
+  InvalidIdentifierError,
+  InvalidOptionValueError,
+  UnknownPatternError,
+  VerificationError,
+} from "../errors.js";
 import { formatSource, formatterVersion } from "../format/prettier.js";
 import { deriveNames, loadNameTable } from "../options/names.js";
 import type { NameTable, NameTransform } from "../options/names.js";
+import { assertCoherent } from "../options/conventions.js";
 import { resolveOptions } from "../options/resolve.js";
 import type { ResolvedRequest } from "../options/resolve.js";
-import { circuitBreakerPattern } from "../patterns/circuit-breaker/index.js";
-import { factoryPattern } from "../patterns/factory/index.js";
-import { repositoryPattern } from "../patterns/repository/index.js";
-import { resultPattern } from "../patterns/result/index.js";
-import { retryPattern } from "../patterns/retry/index.js";
-import type { PatternModule, RenderedFile } from "../patterns/types.js";
+import { moduleFor } from "../patterns/registry.js";
+import type { RenderedFile } from "../patterns/types.js";
 import { withProvenance } from "../provenance/header.js";
 import { hashResolvedRequest } from "../provenance/hash.js";
 import { createVerifier, compilerOptionsFor } from "../verify/index.js";
@@ -41,7 +43,7 @@ import { bareImports, shimTypesFor } from "../verify/test-shims.js";
 import { synthesizeCore } from "../verify/synthesize-core.js";
 import { assembleBundle } from "./assemble.js";
 import type { EmitScope, File } from "./assemble.js";
-import { checkCoreModule, repointImports, stemOf } from "./imports.js";
+import { checkCoreModule, repointImports, siblingSpecifier, stemOf } from "./imports.js";
 
 export interface GenerateRequest {
   readonly pattern: string;
@@ -63,29 +65,64 @@ export interface Bundle {
   readonly nextSteps: readonly string[];
 }
 
-export type GenerateResult = Bundle;
+/**
+ * The answer for a pattern TypeScript has made obsolete: what to do instead, and why (FR-022).
+ *
+ * A success, not a refusal, and the distinction is the whole point. The request was reasonable — these
+ * are the patterns a reader of the 1994 book would look for by name — and the useful reply is the
+ * modern equivalent rather than an error saying the catalogue has no such generator. Adapters carry
+ * this through as success too: exit `0` for the CLI, no `isError` for MCP.
+ *
+ * The fields are the catalogue's advisory content, unrewritten. `relatedPatterns` is carried along
+ * because for several of these the alternative *is* another entry here — a caller told to reach for a
+ * discriminated union instead of a visitor can generate that in their next call, and having to ask what
+ * it is called first would waste the round trip this is meant to save.
+ */
+export interface Advisory {
+  readonly kind: "advisory";
+  readonly pattern: string;
+  /** The idiomatic construction to use instead. */
+  readonly alternative: string;
+  /** Why the language made the pattern unnecessary. */
+  readonly rationale: string;
+  /** Present where a few lines say it better than a paragraph. */
+  readonly example?: string;
+  readonly relatedPatterns: readonly string[];
+}
 
-/** Registered pattern modules, keyed by the catalog name each implements. */
-const MODULES: readonly PatternModule[] = [
-  circuitBreakerPattern,
-  factoryPattern,
-  repositoryPattern,
-  resultPattern,
-  retryPattern,
-];
+export type GenerateResult = Bundle | Advisory;
+
+/**
+ * The registered modules, re-exported.
+ *
+ * Their home is `patterns/registry.ts`, since `describe_pattern` needs the names each keeps for itself and
+ * a description of the catalogue should not have to reach through the pipeline to read them.
+ */
+export { MODULES } from "../patterns/registry.js";
 
 export async function generate(request: GenerateRequest): Promise<GenerateResult> {
   const [catalog, names] = await Promise.all([catalogOnce(), nameTableOnce()]);
-  const pattern = generativeEntry(catalog, request.pattern);
+  const entry = catalogEntry(catalog, request.pattern);
+
+  if (entry.kind === "advisory") return advisoryFor(entry);
+
+  const pattern = entry;
   const module = moduleFor(pattern.name);
 
-  const resolved = resolveOptions(pattern, {
-    ...(request.options === undefined ? {} : { options: request.options }),
-    ...(request.identifiers === undefined ? {} : { identifiers: request.identifiers }),
-    ...(request.conventions === undefined ? {} : { conventions: request.conventions }),
-    ...(request.variant === undefined ? {} : { variant: request.variant }),
-  });
+  const resolved = resolveOptions(
+    pattern,
+    {
+      ...(request.options === undefined ? {} : { options: request.options }),
+      ...(request.identifiers === undefined ? {} : { identifiers: request.identifiers }),
+      ...(request.conventions === undefined ? {} : { conventions: request.conventions }),
+      ...(request.variant === undefined ? {} : { variant: request.variant }),
+    },
+    module.emits ?? [],
+  );
 
+  // Before the executability check, because a contradiction between two conventions is a worse-formed
+  // request than one convention we cannot run a suite for, and the caller should hear about it first.
+  assertCoherent(resolved.conventions);
   assertExecutableTests(resolved);
 
   const rendered = module.render({
@@ -124,27 +161,96 @@ export async function generate(request: GenerateRequest): Promise<GenerateResult
       : {}),
   });
 
+  const record = buildVerificationRecord({
+    files,
+    compilerVersion: verification.compilerVersion,
+    formatterVersion: formatterVersion(),
+    compilerOptions: compilerOptionsFor(resolved.conventions),
+    diagnostics: [],
+    // What verification did, not what the bundle contains: a binding-only bundle emits no suite but
+    // was still executed against one, and reporting `skipped` there would understate the evidence.
+    testOutcome: verification.testOutcome,
+    executedTestFiles: verification.executedTestFiles,
+  });
+
   return {
     kind: "bundle",
     pattern: pattern.name,
     resolvedOptions: resolved.options,
     resolvedConventions: resolved.conventions,
     files,
-    verification: buildVerificationRecord({
-      files,
-      compilerVersion: verification.compilerVersion,
-      formatterVersion: formatterVersion(),
-      compilerOptions: compilerOptionsFor(resolved.conventions),
-      diagnostics: [],
-      // What verification did, not what the bundle contains: a binding-only bundle emits no suite but
-      // was still executed against one, and reporting `skipped` there would understate the evidence.
-      testOutcome: verification.testOutcome,
-      executedTestFiles: verification.executedTestFiles,
-    }),
+    verification: record,
     notes: coreFitNotes(pattern, resolved, scope),
     warnings: [],
-    nextSteps: [],
+    nextSteps: nextStepsFor({
+      supportsSplit: pattern.supportsSplit,
+      resolved,
+      scope,
+      files,
+      testOutcome: record.testOutcome,
+    }),
   };
+}
+
+/**
+ * What has to be requested next for the work this bundle belongs to to be finished (FR-028).
+ *
+ * Two rules keep this from becoming a list of pleasantries. A step appears only when the bundle is
+ * incomplete *on its own terms* — machinery with nothing bound to it, code with no executed suite — and
+ * it names the call that completes it with the argument values already filled in, so that acting on it
+ * requires no composition. Discovery is deliberately absent: `relatedPatterns` is already carried by
+ * `describe_pattern`, and repeating it on every generation would bury the steps that are load-bearing
+ * under ones that are merely interesting.
+ *
+ * Derived from the resolved request rather than from whatever a surface printed, because the CLI has to
+ * be able to say the same things (FR-029, Principle X). Verbosity is deliberately not an input: it
+ * governs how much of an unchanged bundle a surface renders as text, while the structured result carries
+ * every file at every verbosity — so a step here telling an agent to ask again for content it already
+ * holds would simply be false. The surface that omitted something is the one that says so.
+ */
+function nextStepsFor(input: {
+  readonly supportsSplit: boolean;
+  readonly resolved: ResolvedRequest;
+  readonly scope: EmitScope;
+  readonly files: readonly File[];
+  readonly testOutcome: VerificationRecord["testOutcome"];
+}): readonly string[] {
+  const steps: string[] = [];
+
+  const core = input.files.find((file) => file.role === "core");
+  const specifier =
+    core === undefined
+      ? undefined
+      : siblingSpecifier(input.resolved.conventions, stemOf(core.path));
+
+  if (input.scope === "core-only" && specifier !== undefined) {
+    steps.push(
+      `This is the machinery on its own — nothing in it is bound to one of your types yet. Request the ` +
+        `same pattern with emitScope \`binding-only\`, coreModule set to wherever you place this file ` +
+        `("${specifier}" if it will sit beside the binding), and the identifiers for your type.`,
+    );
+  }
+
+  if (input.scope === "full" && input.supportsSplit && specifier !== undefined) {
+    steps.push(
+      `A second type does not need a second copy of the machinery. Request emitScope \`binding-only\` ` +
+        `with coreModule pointing at this bundle's core ("${specifier}" when the two sit side by side), ` +
+        `and only the binding is emitted.`,
+    );
+  }
+
+  // `skipped` is the honest signal rather than the absence of a test file: a `core-only` bundle returns
+  // no suite and was nonetheless executed against one, so counting files would report the opposite of
+  // what happened.
+  if (input.testOutcome === "skipped") {
+    steps.push(
+      `No suite was generated, so this bundle is typechecked and nothing in it has been run. For code ` +
+        `that arrives having been executed, request includeTests \`true\` with a testFramework other ` +
+        `than \`none\`.`,
+    );
+  }
+
+  return steps;
 }
 
 /**
@@ -339,29 +445,55 @@ function derivedNames(
 
   // Sorted, so a failure is reported for the same identifier every time.
   for (const field of Object.keys(identifiers).toSorted()) {
-    const result = deriveNames(identifiers[field] ?? "", table);
-    if (result.ok) {
-      derived[field] = result.names;
+    const supplied = identifiers[field] ?? "";
+    const result = deriveNames(supplied, table);
+    // Refused rather than dropped. The `if (result.ok)` this replaces had no else, so a name whose
+    // plural could not be derived was discarded and the pattern fell back to generic names: a caller
+    // asking for a `Subscription` repository received `EntityRepository`, with nothing said. That is
+    // the same silent-ignore defect as an undeclared identifier, and worse in one respect — the
+    // refusal `deriveNames` had already composed names the rule and says what to do about it, and it
+    // was being thrown away at the one point where a caller could have acted on it.
+    if (!result.ok) {
+      throw new InvalidIdentifierError(field, supplied, result.problem, result.rule);
     }
+    derived[field] = result.names;
   }
 
   return derived;
 }
 
-function generativeEntry(catalog: Catalog, name: string): GenerativePattern {
+function catalogEntry(catalog: Catalog, name: string): Pattern {
   const entry = catalog.patterns.find((candidate) => candidate.name === name);
 
   if (entry === undefined) {
     throw new UnknownPatternError(name, nearest(catalog, name));
   }
 
-  if (entry.kind !== "generative") {
-    // Advisory entries are answered by a different path; reaching here means a caller asked to
-    // generate from one, which is not a thing that can succeed.
-    throw new UnknownPatternError(name, nearest(catalog, name));
-  }
-
   return entry;
+}
+
+/**
+ * The catalogue's advisory content, returned as the answer.
+ *
+ * Options, identifiers and conventions the caller may have sent are not read, and are deliberately not
+ * refused either — which is the one place this pipeline departs from "never ignore an input", so it is
+ * worth saying why. Everywhere else that rule holds because ignoring a value means emitting code that
+ * does not reflect the request, and a caller cannot see the difference. Nothing is emitted here, so
+ * there is no such gap to hide in. What refusing would cost is real: an advisory pattern declares no
+ * options, so the only correction available is to send the same call without them, which returns this
+ * exact answer. A refusal whose remedy produces an identical result is friction with no information in
+ * it — the same reasoning that made `SplitUnsupportedError` say what the pattern does instead of
+ * enumerating options the caller cannot use.
+ */
+function advisoryFor(pattern: AdvisoryPattern): Advisory {
+  return {
+    kind: "advisory",
+    pattern: pattern.name,
+    alternative: pattern.advisory.alternative,
+    rationale: pattern.advisory.rationale,
+    ...(pattern.advisory.example === undefined ? {} : { example: pattern.advisory.example }),
+    relatedPatterns: pattern.relatedPatterns,
+  };
 }
 
 /** Names closest to the request, so a typo costs one retry rather than a round trip (SC-007). */
@@ -369,20 +501,6 @@ function nearest(catalog: Catalog, name: string): readonly string[] {
   return nearestNames(catalog.patterns, name);
 }
 
-function moduleFor(name: string): PatternModule {
-  const module = MODULES.find((candidate) => candidate.name === name);
-
-  if (module === undefined) {
-    // The catalog advertises a pattern with no implementation behind it. That is our defect, and it
-    // must not be reported as though the caller asked for something invalid.
-    throw new Error(
-      `catalog advertises pattern "${name}" but no module implements it; ` +
-        `the catalog entry and src/engine/patterns/ have diverged`,
-    );
-  }
-
-  return module;
-}
 
 /**
  * The correlation identifier a verification failure is reported under.

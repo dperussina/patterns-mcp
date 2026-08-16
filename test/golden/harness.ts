@@ -12,14 +12,28 @@
  * refusals someone remembered to write a test for.
  */
 
-import { generate } from "../../src/engine/generate/index.js";
+import { generateBundle } from "../bundle.js";
 import type { Bundle } from "../../src/engine/generate/index.js";
 import { loadCatalog } from "../../src/engine/catalog/load.js";
 import type { GenerativePattern, Option } from "../../src/engine/catalog/schema.js";
-import { EngineError } from "../../src/engine/errors.js";
+import { CorrectableError } from "../../src/engine/errors.js";
 
 /** The name every snapshot generates around, so a diff shows an option's effect and nothing else. */
 export const GOLDEN_ENTITY = "Order";
+
+/**
+ * `GOLDEN_ENTITY` for the roles a pattern declares, and nothing for the six that declare none.
+ *
+ * Sending `entity` unconditionally used to work, which was the problem: the six patterns that emit a
+ * module named after themselves ignored it while it still entered the provenance hash, so the golden
+ * files recorded a name that appears nowhere in them. Now such a name is refused, and this keeps the
+ * request honest rather than keeping the old behaviour alive behind a harness.
+ */
+export function goldenIdentifiers(
+  pattern: GenerativePattern,
+): Readonly<Record<string, string>> {
+  return Object.fromEntries(pattern.identifiers.map((role) => [role.name, GOLDEN_ENTITY]));
+}
 
 /**
  * Prettier's default `printWidth`, which is what generated code is formatted to unless a caller says
@@ -101,15 +115,20 @@ export function documentedCombinations(pattern: GenerativePattern): readonly Com
  * empty, which `binding-only` refuses. Every `binding-only` combination above is therefore a snapshot of
  * that refusal, and the scope's actual output goes uncovered.
  *
- * Both specifier kinds are pinned because they take different routes through verification: a relative one
- * has the synthesised core written at the path it resolves to, and a bare one has it written as a package
- * under `node_modules` (see `synthesize-core.ts`). They are the same bundle apart from one string, which
- * is exactly why a diff in only one of them is worth seeing.
+ * All three specifier kinds are pinned because each takes a different route through verification: a
+ * relative one has the synthesised core written at the path it resolves to, a climbing one has the bundle
+ * placed as deep as it climbs so that path is inside the root, and a bare one has the core written as a
+ * package under `node_modules` (see `synthesize-core.ts`). They are the same bundle apart from one
+ * string, which is exactly why a diff in only one of them is worth seeing.
+ *
+ * The climbing case is the one that was missing rather than merely uncovered: `../lib/core.js` is what a
+ * binding in `src/orders` has to write to reach a core in `src/lib`, and it was refused outright, so the
+ * layout the split exists to serve was the layout that could not be verified.
  */
 export function splitCombinations(pattern: GenerativePattern): readonly Combination[] {
   if (!pattern.supportsSplit) return [];
 
-  return ["./lib/core.js", "@acme/core"].map((coreModule) => ({
+  return ["./lib/core.js", "../lib/core.js", "@acme/core"].map((coreModule) => ({
     emitScope: "binding-only",
     coreModule,
   }));
@@ -149,22 +168,30 @@ function serialize(bundle: Bundle): string {
 /**
  * The stored result for one combination: the bundle, or the refusal it earns.
  *
- * Only an `EngineError` is treated as an expected outcome. Anything else is a crash rather than a
+ * Only a `CorrectableError` is treated as an expected outcome. Anything else is a crash rather than a
  * decision, and recording it as the expectation would freeze a bug into the suite.
+ *
+ * The distinction is narrower than it looks and was originally got wrong here, with real cost.
+ * `VerificationError` is an `EngineError` too, so catching that supertype meant a pattern whose own
+ * generated tests failed was written down as "refused" and the suite went green — which is how
+ * `repository` at `pagination: offset` sat in the repository for a while returning a duplicate row
+ * across consecutive pages, with twelve snapshots recording the failure as the expectation. A
+ * refusal is a judgement about the request. A verification failure is a defect in us, and the only
+ * correct thing to do with it is let it out.
  */
 export async function goldenFor(
   pattern: GenerativePattern,
   combination: Combination,
 ): Promise<string> {
   try {
-    const bundle = await generate({
+    const bundle = await generateBundle({
       pattern: pattern.name,
-      identifiers: { entity: GOLDEN_ENTITY },
+      identifiers: goldenIdentifiers(pattern),
       options: combination,
     });
     return serialize(bundle);
   } catch (error) {
-    if (error instanceof EngineError) {
+    if (error instanceof CorrectableError) {
       return `# ${pattern.name}\n\n## Refused\n\n${error.code}\n\n${error.message}\n`;
     }
     throw error;

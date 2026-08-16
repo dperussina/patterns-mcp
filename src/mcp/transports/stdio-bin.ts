@@ -7,6 +7,17 @@
  * suite to touch it would hang waiting for frames that never come.
  */
 
-import { main } from "./stdio.js";
+import { stderrLog } from "../log.js";
+import { main, runtimeRefusal } from "./stdio.js";
 
-main();
+const refusal = runtimeRefusal();
+
+if (refusal === undefined) {
+  main();
+} else {
+  // stderr and a non-zero exit, which is all a host reads. Nothing is written to stdout: on this
+  // transport stdout is the wire, and a client parsing a diagnostic as a frame would report a protocol
+  // error instead of the sentence explaining what is wrong.
+  stderrLog(refusal);
+  process.exitCode = 1;
+}

@@ -20,6 +20,14 @@
  * that has nothing to do with the code. Transpiling to CommonJS with
  * `rewriteRelativeImportExtensions` makes all three extension conventions — `.js`, `.ts`, and
  * extensionless — resolve, which was verified for each.
+ *
+ * **Why the network is closed here rather than left to the permission model.** It was assumed to be
+ * covered and is not: `--permission` governs the filesystem, child processes, workers and native addons,
+ * and says nothing about sockets. Measured rather than reasoned about — a probe run with exactly the flags
+ * below resolved a real DNS name and imported `node:net` without complaint. Since FR-034 now permits a
+ * declaring pattern to emit code that reaches the network, the tests for those patterns are the ones most
+ * worth pinning: they are supposed to pass a fake transport in and never dial. `DENY_NETWORK` makes the
+ * difference between "does not" and "cannot".
  */
 
 import { execFile } from "node:child_process";
@@ -28,6 +36,8 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import ts from "typescript-stable";
 
+import { UnsupportedRuntimeError } from "../errors.js";
+import { MINIMUM_NODE, runtimeSupported } from "./runtime.js";
 import { bareRequires, shimFilesFor } from "./test-shims.js";
 
 import type { BundleFile } from "./typecheck.js";
@@ -63,6 +73,14 @@ const DEFAULT_TIMEOUT_MS = 5_000;
 export async function runGeneratedTests(request: TestRunRequest): Promise<TestRunResult> {
   if (request.testPaths.length === 0) return { outcome: "skipped", detail: undefined };
 
+  // Checked here rather than at the spawn: below this line the sandbox is the only thing standing
+  // between generated code and the filesystem, and a runtime that cannot enforce it must stop the
+  // request instead of reporting whatever the child happened to print. The order also matters —
+  // ahead of the temporary directory, so nothing is written for a run that cannot proceed.
+  if (!runtimeSupported()) {
+    throw new UnsupportedRuntimeError(MINIMUM_NODE, process.versions.node);
+  }
+
   const missing = request.testPaths.filter(
     (path) => !request.files.some((file) => file.path === path),
   );
@@ -86,6 +104,62 @@ export async function runGeneratedTests(request: TestRunRequest): Promise<TestRu
   }
 }
 
+/**
+ * Preloaded into every sandboxed run, replacing each network entry point with one that throws.
+ *
+ * CommonJS because the sandbox declares `type: commonjs`, which is also what makes this effective rather
+ * than decorative: every bundle is transpiled to `require`, so patching the exports object a builtin
+ * hands out is patching the only copy the generated code can reach. An ESM sandbox would have frozen
+ * namespace objects and this would need a loader hook, which the permission model denies because
+ * registering one spawns a worker.
+ *
+ * The list is entry points, not modules, and specifically not classes. An earlier version replaced
+ * `net.Socket` and `tls.TLSSocket` outright and broke every run with `Class extends value () => {}`:
+ * Node's own test runner reaches those constructors on the way to writing its output, so removing them
+ * denies the sandbox its stdout rather than its network. Constructing a socket is harmless anyway —
+ * connecting is the act — so `Socket.prototype.connect` is closed and the class is left alone.
+ */
+const DENY_NETWORK = `
+const deny = (what) => () => {
+  throw new Error("Verification denies network access, and " + what + " was called.");
+};
+
+globalThis.fetch = deny("fetch");
+
+for (const [id, names] of [
+  ["node:net", ["connect", "createConnection"]],
+  ["node:tls", ["connect"]],
+  ["node:http", ["request", "get"]],
+  ["node:https", ["request", "get"]],
+  ["node:http2", ["connect"]],
+  ["node:dgram", ["createSocket"]],
+  ["node:dns", ["lookup", "resolve", "resolve4", "resolve6"]],
+]) {
+  const loaded = require(id);
+  for (const name of names) {
+    try {
+      loaded[name] = deny(id + "." + name);
+    } catch {
+      // A future runtime may make one of these non-writable. Losing one entry point is not a reason to
+      // fail verification, and every other one is still closed.
+    }
+  }
+}
+
+// The method, not the constructor. This is what \`new Socket().connect()\` and every wrapper around it
+// eventually reaches, including the ones the entry points above would have gone through.
+for (const [id, holder] of [["node:net", "Socket"], ["node:tls", "TLSSocket"]]) {
+  try {
+    require(id)[holder].prototype.connect = deny(id + "." + holder + ".connect");
+  } catch {
+    // As above: a shape we did not expect is not a reason to refuse to verify.
+  }
+}
+`;
+
+/** Named with a leading underscore so it sorts away from bundle files and cannot be mistaken for one. */
+const DENY_NETWORK_PATH = "_deny-network.cjs";
+
 /** Rejects anything that could write outside the sandbox. Paths are ours, so this is a backstop. */
 function assertSafePath(path: string): void {
   if (path.startsWith("/") || path.includes("..") || path.includes("\\")) {
@@ -100,6 +174,7 @@ async function materialise(
 ): Promise<void> {
   // CommonJS, so that an extensionless specifier resolves; ESM has no extension search.
   await writeFile(join(directory, "package.json"), `${JSON.stringify({ type: "commonjs" })}\n`);
+  await writeFile(join(directory, DENY_NETWORK_PATH), DENY_NETWORK);
 
   const required = new Set<string>();
 
@@ -167,6 +242,9 @@ function runOne(directory: string, testPath: string, timeoutMs: number): Promise
         // Denies filesystem writes, child processes, and native addons for the code being run.
         "--permission",
         `--allow-fs-read=${directory}`,
+        // Closes what the flag above leaves open. See DENY_NETWORK.
+        "--require",
+        join(directory, DENY_NETWORK_PATH),
         join(directory, testPath),
       ],
       {

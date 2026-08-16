@@ -17,6 +17,7 @@ import {
   InvalidOptionValueError,
   MissingRequiredOptionError,
   SplitUnsupportedError,
+  UnknownIdentifierError,
   UnknownOptionError,
 } from "../errors.js";
 import { ConventionsSchema, type Conventions } from "./conventions.js";
@@ -54,10 +55,15 @@ export interface ResolvedRequest {
  * Note that unknown option names are rejected rather than ignored. Silently
  * dropping an unrecognised option is the worse failure: the caller believes they
  * configured something, the output does not reflect it, and nothing says so.
+ *
+ * That applies to identifiers too, which it did not always. Both halves of a
+ * request are now closed, so a name the pattern does not generate around is
+ * refused with the roles it does.
  */
 export function resolveOptions(
   pattern: GenerativePattern,
   request: ResolveRequest = {},
+  emits: readonly string[] = [],
 ): ResolvedRequest {
   const declared = new Map(
     pattern.options.map((option) => [option.name, option]),
@@ -104,14 +110,33 @@ export function resolveOptions(
   // Step 4 — identifiers. Checked before defaults are applied because an invalid
   // identifier is the caller's most likely mistake, and reporting it should not
   // depend on unrelated defaulting succeeding first.
+  //
+  // The role is checked before the value, for the same reason an option's name is
+  // checked before its value: a caller told their name is wrong has no use for a
+  // complaint about the string they gave it.
+  const roles = new Set(pattern.identifiers.map((role) => role.name));
   const identifiers: Record<string, string> = {};
   for (const field of Object.keys(request.identifiers ?? {}).toSorted(
     compare,
   )) {
+    // Undeclared roles are refused rather than ignored, on the same reasoning as
+    // unknown options above — and this one was found the harder way. An `entity`
+    // supplied to a pattern that reads none used to be accepted, generate names
+    // it had no part in, and still change the provenance hash, so two callers
+    // received byte-different headers over an identifier neither bundle used.
+    if (!roles.has(field)) {
+      throw new UnknownIdentifierError(field, [...roles].toSorted(compare));
+    }
+
     const value = (request.identifiers ?? {})[field] ?? "";
-    const check = checkIdentifier(value, { label: field });
+    // `emits` is what makes the collision rule reachable. The rule has always been in
+    // `checkIdentifier`, documented as being for "the identifiers the requested pattern itself
+    // emits", and nothing ever passed any, so a name that collided was not refused: it was rendered,
+    // failed to compile, and came back as our defect. Which it was — but the caller could have been
+    // told in one line to choose another name.
+    const check = checkIdentifier(value, { label: field, reserved: emits });
     if (!check.ok) {
-      throw new InvalidIdentifierError(field, check.problem);
+      throw new InvalidIdentifierError(field, value, check.problem, check.rule);
     }
     identifiers[field] = value;
   }

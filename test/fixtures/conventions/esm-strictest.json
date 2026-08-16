@@ -1,0 +1,13 @@
+{
+  "strictness": "strictest",
+  "moduleStyle": "esm",
+  "importExtensions": "js",
+  "typeImports": "separate",
+  "testFramework": "vitest",
+  "runtime": "neutral",
+  "prettierConfig": {
+    "printWidth": 80,
+    "singleQuote": false,
+    "trailingComma": "all"
+  }
+}

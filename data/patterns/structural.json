@@ -1,0 +1,150 @@
+{
+  "patterns": [
+    {
+      "name": "adapter",
+      "title": "Boundary Adapter",
+      "category": "structural",
+      "kind": "generative",
+      "intent": "Translate a foreign representation into one this codebase owns, field by field, so a missing mapping is a compile error and a value that cannot be converted is reported with its field.",
+      "supportsSplit": false,
+      "variants": [],
+      "identifiers": [
+        {
+          "name": "entity",
+          "description": "The type your own code wants, which the adapter produces from the foreign shape."
+        }
+      ],
+      "options": [
+        {
+          "name": "direction",
+          "type": "enum",
+          "values": ["one-way", "two-way"],
+          "default": "one-way",
+          "description": "`one-way` reads a foreign shape into a domain one, which is what a boundary that only loads needs. `two-way` adds the reverse mapping and the methods that use it, for a boundary that also writes — and makes the round trip a property a test can assert.",
+          "affects": ["core", "example", "test"]
+        },
+        {
+          "name": "errorMode",
+          "type": "enum",
+          "values": ["result", "throw"],
+          "default": "result",
+          "description": "How a source that cannot be mapped is reported. `result` returns the failing fields as a value, which is what lets a boundary answer with all of them at once. `throw` raises an error carrying the same list.",
+          "affects": ["core", "example", "test"]
+        },
+        {
+          "name": "includeTests",
+          "type": "boolean",
+          "default": true,
+          "description": "Emit an executable test suite alongside the implementation.",
+          "affects": ["files", "test"]
+        }
+      ],
+      "legality": [],
+      "relatedPatterns": ["gateway", "repository", "result"],
+      "provenance": "Original implementation. \"Adapter\" is from Gamma, Helm, Johnson and Vlissides, \"Design Patterns\" (1994), where it names a class that makes one interface usable as another. TypeScript's structural typing removes most of the need for that class, so what is generated here is the part structural typing does not help with: a field mapping the compiler can prove is total, and per-field attribution of the conversions that fail.",
+      "license": "original",
+      "tier": 1
+    },
+    {
+      "name": "decorator",
+      "title": "Method Decorator",
+      "category": "structural",
+      "kind": "generative",
+      "intent": "Wrap one behaviour around every method of an existing object — timing, logging, authorisation, caching — without touching the object, repeating the wrapper per method, or changing its type.",
+      "supportsSplit": false,
+      "variants": [],
+      "identifiers": [
+        {
+          "name": "entity",
+          "description": "The interface being decorated."
+        }
+      ],
+      "options": [
+        {
+          "name": "dispatch",
+          "type": "enum",
+          "values": ["manifest", "proxy"],
+          "default": "manifest",
+          "description": "How the methods to wrap are found. An interface has no members at run time, so something has to supply them. `manifest` takes an object naming them, typed so that it must name every one — adding a method to the subject makes the manifest a compile error rather than silently leaving the new method undecorated, which is the failure this pattern exists to prevent. `proxy` needs no list and picks up members added later, at the cost of an exotic object: it defeats shape-based optimisation, and a property whose value happens to be a function is indistinguishable from a method.",
+          "affects": ["core", "example", "test"]
+        },
+        {
+          "name": "stacking",
+          "type": "boolean",
+          "default": true,
+          "description": "Emit the combinator that applies several decorations to one subject, outermost first. Worth having wherever more than one concern applies, which is usual — timing outside authorisation outside caching — and worth omitting for a single concern, where it is unreachable surface.",
+          "affects": ["core", "example", "test"]
+        },
+        {
+          "name": "includeTests",
+          "type": "boolean",
+          "default": true,
+          "description": "Emit an executable test suite alongside the implementation.",
+          "affects": ["files", "test"]
+        }
+      ],
+      "legality": [],
+      "relatedPatterns": ["adapter", "circuit-breaker", "retry"],
+      "provenance": "Original implementation. \"Decorator\" is from Gamma, Helm, Johnson and Vlissides, \"Design Patterns\" (1994), where a decorator implements the wrapped interface and forwards what it does not change. TypeScript makes the forwarding checkable — a class declaring `implements` cannot omit a member — so the textbook version is not the part worth generating. What is generated is the case the textbook does not cover: one behaviour applied across every method at once, typed so the behaviour sees each method's own parameters and return type rather than `unknown`. Unrelated to TypeScript's `@decorator` syntax, which annotates a declaration at compile time and is a different mechanism with the same name.",
+      "license": "original",
+      "tier": 1
+    },
+    {
+      "name": "gateway",
+      "title": "Service Gateway",
+      "category": "structural",
+      "kind": "generative",
+      "intent": "Put one typed boundary in front of a remote service, so every call site sees domain outcomes instead of status codes, unvalidated bodies, and network exceptions.",
+      "network": {
+        "boundary": "transport",
+        "reason": "Under transport \"fetch\" the emitted adapter calls fetch. The gateway itself never mentions it: calls go through a transport function, so a test drives the gateway with a literal reply and a project with its own HTTP client keeps it. Under transport \"port-only\" no adapter is emitted and nothing reaches the network."
+      },
+      "supportsSplit": false,
+      "variants": [],
+      "identifiers": [
+        {
+          "name": "entity",
+          "description": "The remote resource the gateway fronts."
+        }
+      ],
+      "options": [
+        {
+          "name": "transport",
+          "type": "enum",
+          "values": ["fetch", "port-only"],
+          "default": "fetch",
+          "description": "Whether to emit a `fetch`-backed transport alongside the gateway. `port-only` emits the transport type and leaves the implementation to the caller, which is what a project already holding an HTTP client wants. The gateway itself never references `fetch` either way.",
+          "affects": ["files", "adapter", "example"]
+        },
+        {
+          "name": "errorMode",
+          "type": "enum",
+          "values": ["result", "throw"],
+          "default": "result",
+          "description": "How a call reports failure. `result` returns a value carrying one of the failure kinds, which is what makes exhaustive handling checkable. `throw` raises an error carrying the same failure, for a codebase whose call sites are already written around exceptions.",
+          "affects": ["core", "adapter", "example", "test"]
+        },
+        {
+          "name": "cancellation",
+          "type": "enum",
+          "values": ["abort-signal", "none"],
+          "default": "abort-signal",
+          "description": "Whether calls accept an AbortSignal and a per-call timeout, composed so that whichever fires first is reported as its own failure kind. `none` emits a gateway with neither, and therefore one that can wait forever.",
+          "affects": ["core", "adapter", "example", "test"]
+        },
+        {
+          "name": "includeTests",
+          "type": "boolean",
+          "default": true,
+          "description": "Emit an executable test suite alongside the implementation.",
+          "affects": ["files", "test"]
+        }
+      ],
+      "legality": [],
+      "relatedPatterns": ["circuit-breaker", "result", "retry"],
+      "provenance": "Original implementation. \"Gateway\" is Martin Fowler's term from \"Patterns of Enterprise Application Architecture\" (2002), where it names an object that encapsulates access to an external system; the failure taxonomy, the decoder seam, and the signal composition here are written for this codebase and adapted from no source.",
+      "license": "original",
+      "tier": 1
+    }
+  ]
+}

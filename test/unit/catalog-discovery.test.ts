@@ -31,6 +31,7 @@ function generative(name: string, overrides: Record<string, unknown> = {}): unkn
     intent: `Intent for ${name}.`,
     supportsSplit: false,
     variants: [],
+    identifiers: [],
     options: [
       {
         name: "includeTests",

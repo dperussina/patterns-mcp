@@ -27,14 +27,15 @@
 
 import { afterAll, describe, expect, it } from "vitest";
 
-import { disposeEngine, generate } from "../../src/engine/generate/index.js";
-import { EngineError } from "../../src/engine/errors.js";
+import { disposeEngine } from "../../src/engine/generate/index.js";
+import { generateBundle } from "../bundle.js";
+import { CorrectableError } from "../../src/engine/errors.js";
 import { delta, isEmpty } from "./blast-radius.js";
 
 import type { Bundle } from "../../src/engine/generate/index.js";
 import type { GenerativePattern, Option } from "../../src/engine/catalog/schema.js";
 import type { Delta } from "./blast-radius.js";
-import { generativePatterns, GOLDEN_ENTITY } from "../golden/harness.js";
+import { generativePatterns, goldenIdentifiers } from "../golden/harness.js";
 
 const patterns = await generativePatterns();
 
@@ -54,17 +55,19 @@ function deviations(option: Option): readonly (string | boolean)[] {
 async function bundleFor(
   pattern: GenerativePattern,
   options: Readonly<Record<string, unknown>>,
-): Promise<Bundle | EngineError> {
+): Promise<Bundle | CorrectableError> {
   try {
-    return await generate({
+    return await generateBundle({
       pattern: pattern.name,
-      identifiers: { entity: GOLDEN_ENTITY },
+      identifiers: goldenIdentifiers(pattern),
       options,
     });
   } catch (error) {
     // A refusal is a legitimate answer for a deviation a legality rule forbids, and it has no diff to
-    // examine. Anything that is not a refusal is a crash and must not be swallowed.
-    if (error instanceof EngineError) return error;
+    // examine. Anything that is not a refusal is a crash and must not be swallowed — `CorrectableError`
+    // rather than `EngineError` because `VerificationError` is one of those too, and catching the
+    // supertype here recorded a pattern that failed its own tests as a deviation "refused" by design.
+    if (error instanceof CorrectableError) return error;
     throw error;
   }
 }
@@ -91,7 +94,7 @@ describe.each(patterns.map((pattern) => ({ pattern, name: pattern.name })))(
       "confines each option's effect to the surfaces it declares, and records what it moves",
       async () => {
         const baseline = await bundleFor(pattern, {});
-        if (baseline instanceof EngineError) {
+        if (baseline instanceof CorrectableError) {
           throw new Error(
             `pattern "${pattern.name}" refuses its own defaults: ${baseline.message}; ` +
               `there is nothing to compare deviations against`,
@@ -106,7 +109,7 @@ describe.each(patterns.map((pattern) => ({ pattern, name: pattern.name })))(
             const name = `${option.name}=${String(value)}`;
             const variant = await bundleFor(pattern, { [option.name]: value });
 
-            if (variant instanceof EngineError) {
+            if (variant instanceof CorrectableError) {
               sections.push(`## ${name}\n\nrefused: ${variant.code}\n`);
               continue;
             }

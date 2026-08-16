@@ -25,7 +25,8 @@
  */
 
 import { importsFrom, siblingSpecifier } from "../../generate/imports.js";
-import { expectFile, type Matcher } from "../expect-file.js";
+import { withNoun } from "../../options/names.js";
+import { expectFileEntry } from "../expect-file.js";
 import { dedent, documented, documentedAt, joinLines, sections, when } from "../../render/helpers.js";
 import type { PatternModule, RenderContext, RenderedFile } from "../types.js";
 
@@ -51,11 +52,7 @@ export const factoryPattern: PatternModule = {
       files.push({ path: `${stem}.test.ts`, role: "test", contents: tests(context, shape) });
 
       if (conventions.testFramework === "node-test") {
-        files.push({
-          path: "expect.ts",
-          role: "test",
-          contents: expectFile(matchersFor(shape)),
-        });
+        files.push(expectFileEntry());
       }
     }
 
@@ -99,11 +96,12 @@ interface Names {
 function namesFor(context: RenderContext): Names {
   const entity = context.names.entity;
   const prefix = entity === undefined ? "" : entity.pascal;
+  const factory = entity === undefined ? undefined : withNoun(entity, "Factory");
 
   return {
-    stem: entity === undefined ? "factory" : `${entity.kebab}-factory`,
-    factory: `${prefix}Factory`,
-    build: `create${prefix}Factory`,
+    stem: factory?.kebab ?? "factory",
+    factory: factory?.pascal ?? "Factory",
+    build: `create${factory?.pascal ?? "Factory"}`,
     kind: `${prefix}Kind`,
     creator: `${prefix}Creator`,
     creators: `${prefix}Creators`,
@@ -111,23 +109,6 @@ function namesFor(context: RenderContext): Names {
     error: `Unknown${prefix}KindError`,
     outcome: `${prefix}Outcome`,
   };
-}
-
-/**
- * The matchers the emitted suite actually uses.
- *
- * Derived rather than listed, because which assertions the suite makes depends on two options: the
- * throwing form needs `toThrow` and `toBeInstanceOf`, and only the dynamic form has an `extend` block
- * to assert lengths and membership on. A fixed list would ship a caller matchers their own tests never
- * call, which `expect-file.ts` describes as a small lie about what was verified.
- */
-function matchersFor(shape: Shape): readonly Matcher[] {
-  return [
-    "toBe",
-    "toEqual",
-    ...(shape.results ? [] : (["toThrow", "toBeInstanceOf"] as const)),
-    ...(shape.dynamic ? (["toContain", "toHaveLength"] as const) : []),
-  ];
 }
 
 /** The type parameters every declaration in the file carries, plus any of its own. */
@@ -219,6 +200,7 @@ function core(shape: Shape): string {
         [
           "The outcome of a lookup that could fail.",
           "Deliberately the same shape as the `result` pattern's type — a literal `ok` discriminant with `value` and `error` arms — so a caller who has generated that pattern can pass this straight into its combinators, and a caller who has not still gets something that narrows in an `if` without importing anything.",
+          "Compare the discriminant, as in `if (outcome.ok === false)`, rather than testing it for truthiness. Both narrow under `strict`, but only the comparison narrows in a project with `strictNullChecks` off, where `if (!outcome.ok)` leaves the type unnarrowed and reading `error` off it is an error.",
         ],
         dedent`
           export type ${n.outcome}<T> =
@@ -519,7 +501,7 @@ function example(context: RenderContext, shape: Shape): string {
           ? dedent`
               const outcome = shipments.from(method, request);
 
-              if (!outcome.ok) {
+              if (outcome.ok === false) {
                 return \`No such method "\${outcome.error.key}". Try: \${outcome.error.known.join(", ")}.\`;
               }
 
@@ -582,7 +564,7 @@ function tests(context: RenderContext, shape: Shape): string {
           importsFrom(conventions, "node:test", { values: ["describe", "it"] }),
           importsFrom(conventions, siblingSpecifier(conventions, "expect"), { values: ["expect"] }),
         )
-      : importsFrom(conventions, conventions.testFramework === "jest" ? "@jest/globals" : "vitest", {
+      : importsFrom(conventions, "vitest", {
           values: ["describe", "expect", "it"],
         });
 
@@ -685,15 +667,15 @@ function lookupCases(shape: Shape): string {
             const outcome = build().from("beta", { size: 3 });
 
             expect(outcome.ok).toBe(true);
-            expect(outcome.ok ? outcome.value.tag : "missing").toBe("beta");
+            expect(outcome.ok === true ? outcome.value.tag : "missing").toBe("beta");
           });
 
           it("reports an unknown key with the keys that would have worked", () => {
             const outcome = build().from("gamma", { size: 3 });
 
             expect(outcome.ok).toBe(false);
-            expect(outcome.ok ? "found" : outcome.error.key).toBe("gamma");
-            expect(outcome.ok ? [] : outcome.error.known).toEqual(["alpha", "beta"]);
+            expect(outcome.ok === true ? "found" : outcome.error.key).toBe("gamma");
+            expect(outcome.ok === true ? [] : outcome.error.known).toEqual(["alpha", "beta"]);
           });
         });
       `

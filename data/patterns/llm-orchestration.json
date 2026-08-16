@@ -1,0 +1,427 @@
+{
+  "patterns": [
+    {
+      "name": "chat-model-port",
+      "title": "Chat Model Port",
+      "category": "llm-orchestration",
+      "kind": "generative",
+      "intent": "Depend on one small interface for a chat model instead of on a provider's SDK, with the wire format behind an adapter that a recorded body can test.",
+      "network": {
+        "boundary": "fetch",
+        "reason": "The emitted factory wires encode and decode to fetch. Both of those are pure functions over plain data, so the generated tests replay recorded bodies through an injected transport and never open a socket; pass your own fetch to record, replay, or add a header.",
+        "defaultHost": "The selected provider's documented endpoint, overridable with baseUrl."
+      },
+      "supportsSplit": true,
+      "variants": [],
+      "identifiers": [],
+      "options": [
+        {
+          "name": "provider",
+          "type": "enum",
+          "values": [
+            "openai-chat",
+            "anthropic-messages"
+          ],
+          "default": "openai-chat",
+          "description": "Which wire format the adapter speaks. `openai-chat` is the chat-completions shape, which many services other than OpenAI also accept \u2014 a system prompt as the first message, one message per tool result, and tool arguments as a JSON string. `anthropic-messages` is the Messages shape \u2014 a system prompt as a top-level field, a required output limit, content as blocks, tool results inside a user turn, and tool input as a value. Both adapters implement the same port, which is the point: the differences are absorbed in one file each rather than spread through the code that calls them. The adapter is named for the format it speaks, so two of them can sit beside one port without colliding.",
+          "affects": [
+            "files",
+            "binding",
+            "example",
+            "test"
+          ]
+        },
+        {
+          "name": "streaming",
+          "type": "boolean",
+          "default": true,
+          "description": "Whether the port declares `stream` and the adapter can decode a server-sent event stream. Turning it off removes the stream part union, the event framing, the byte-stream bridge, and the per-format event decoding \u2014 worth doing for a caller who only ever waits for a whole answer, and worth keeping for anyone showing output as it arrives, since the framing is where a hand-written reader goes wrong.",
+          "affects": [
+            "core",
+            "binding",
+            "example",
+            "test"
+          ]
+        },
+        {
+          "name": "emitScope",
+          "type": "enum",
+          "values": [
+            "full",
+            "core-only",
+            "binding-only"
+          ],
+          "default": "full",
+          "description": "Which half of the pattern to emit. `full` is both. `core-only` is the port and the provider-independent machinery, with an example and suite that demonstrate it against a model written by hand rather than against a wire format this scope did not emit. `binding-only` is one adapter \u2014 for a project that already has the port, and which then requires `coreModule`. A second provider is a second `binding-only` request against the same core.",
+          "affects": [
+            "files",
+            "binding",
+            "example",
+            "test"
+          ]
+        },
+        {
+          "name": "coreModule",
+          "type": "string",
+          "default": "",
+          "description": "Where the already-installed port lives, as the adapter should import it: `./chat-model-port.js` beside the adapter, `../lib/chat-model-port.js` when it sits in another directory, or a package name. Required by `binding-only` and meaningless otherwise, since a full bundle carries the port beside the adapter and imports it as a sibling.",
+          "affects": [
+            "binding"
+          ]
+        },
+        {
+          "name": "includeTests",
+          "type": "boolean",
+          "default": true,
+          "description": "Emit an executable test suite alongside the implementation. Worth keeping here more than in most patterns: the encoder and the decoder are pure functions over recorded bodies, so the suite is the only thing standing between a wire-format detail and a failure that only appears against the live service.",
+          "affects": [
+            "files",
+            "test"
+          ]
+        }
+      ],
+      "legality": [],
+      "relatedPatterns": [
+        "adapter",
+        "gateway",
+        "parse-dont-validate",
+        "retry"
+      ],
+      "provenance": "Original implementation. The port is the intersection of what the mainstream provider abstractions expose, as settled in research \u00a713; the message and content types, the tool-name checking through a `const` type parameter, the event framing, and both wire-format adapters are written here. Three results were settled with the compiler before any of it was written. A `const` type parameter on `generate` keeps an inline array of tool literals from widening, which is what makes `toolChoice` refuse a name no tool declared without the caller writing `as const`; the default for that parameter is the empty tuple rather than `readonly ToolDefinition[]`, since the wider default collapses the name union to `string` and accepts anything. And the system prompt is a field rather than a fourth message role, because only one of the two wire formats can place one mid-conversation \u2014 as a role it would be a request that typechecks and cannot be sent.",
+      "license": "original",
+      "tier": 1
+    },
+    {
+      "name": "stream-accumulator",
+      "title": "Stream Accumulator",
+      "category": "llm-orchestration",
+      "kind": "generative",
+      "intent": "Fold a streamed turn back into a whole one, with each tool call's input assembled from the JSON fragments it arrived in.",
+      "supportsSplit": false,
+      "variants": [],
+      "identifiers": [],
+      "options": [
+        {
+          "name": "truncation",
+          "type": "enum",
+          "values": [
+            "refuse",
+            "report"
+          ],
+          "default": "refuse",
+          "description": "What a stream that stopped early is. `refuse` throws, with the partial turn attached to the error, so a caller cannot mistake a cut-off answer for a finished one \u2014 the safe default, because a turn whose stop reason was guessed is the kind of thing that surfaces three layers away. `report` returns the turn with `\"other\"` as its reason and a warning saying what was missing, which is what an interactive reader wants: the text already on their screen is real, and blanking it because the last event never arrived is worse than saying so. Either way a tool call whose input never finished is left out of the content, since a tool run against half its arguments is worse than a tool not run.",
+          "affects": [
+            "core",
+            "example",
+            "test"
+          ]
+        },
+        {
+          "name": "progress",
+          "type": "boolean",
+          "default": true,
+          "description": "Emit the snapshot surface: a `StreamSnapshot` of the turn so far and an `onProgress` callback the fold invokes after every part. Worth keeping for anything with a reader in front of it, and worth removing for a server-side loop that only wants the finished turn. The snapshot hands over the whole text rather than the latest delta so that a render is idempotent, and a tool call's input as the unparsed fragments it is, since a half-arrived object is not an object.",
+          "affects": [
+            "core",
+            "example",
+            "test"
+          ]
+        },
+        {
+          "name": "includeTests",
+          "type": "boolean",
+          "default": true,
+          "description": "Emit an executable test suite alongside the implementation. The fold is a pure function over a list of parts, so the suite is cheap and the cases are the interesting part: interleaved fragments from concurrent calls, a call that never closed, a part after the finish, and a stream replayed from a recorded array.",
+          "affects": [
+            "files",
+            "test"
+          ]
+        }
+      ],
+      "legality": [],
+      "relatedPatterns": [
+        "chat-model-port",
+        "parse-dont-validate",
+        "result"
+      ],
+      "provenance": "Original implementation. The part shapes it folds are the ones the mainstream provider abstractions agree on, as settled in research \u00a713, and they are declared in the emitted file rather than imported: TypeScript is structural, so a stream from the `chat-model-port` adapter fits without either file depending on the other, which was checked with the compiler in both directions. Three further results were settled the same way before the templates were written. What the fold produces is mutually assignable with the port's `ChatResponse` under `exactOptionalPropertyTypes`, which is what lets a tool loop have one code path for a streamed turn and a waited-for one rather than two. `warnings` on the finish part is optional here and required there, so the looseness runs one way on purpose: a hand-written producer with no notion of warnings fits, while the port's own parts stay valid. And `for await` accepts a sync iterable as readily as an async one, so the signature takes both and a recorded array of parts replays with no helper \u2014 the form a log hands back, and the form the emitted suite uses throughout.",
+      "license": "original",
+      "tier": 1
+    },
+    {
+      "name": "structured-output",
+      "title": "Structured Output",
+      "category": "llm-orchestration",
+      "kind": "generative",
+      "intent": "Get a schema-validated, typed value out of a chat model, with the retry a failed validation earns.",
+      "supportsSplit": false,
+      "variants": [],
+      "identifiers": [],
+      "options": [
+        {
+          "name": "strategy",
+          "type": "enum",
+          "values": [
+            "tool-call",
+            "response-format",
+            "prompt"
+          ],
+          "default": "tool-call",
+          "description": "How the model is asked to produce the value, and therefore where the answer is read from. `tool-call` declares one tool and requires it, taking the value from the call's input: the only strategy that works on every mainstream provider, because tool calling is universal where JSON mode is not, and the one that reads no prose at all \u2014 an adapter has already turned the wire into a value. `response-format` sends the OpenAI-compatible response-format instruction, which reaches an OpenAI, Azure, Gemini-compatibility or LiteLLM endpoint; it travels in `providerOptions`, since a field only some providers have is not part of the shared request, and a provider that accepts it and ignores it earns a warning rather than a mysterious failure. `prompt` puts the schema in the system prompt and pulls the first JSON value out of whatever comes back, which is what is left for a model with neither capability.",
+          "affects": [
+            "core",
+            "example",
+            "test"
+          ]
+        },
+        {
+          "name": "onInvalid",
+          "type": "enum",
+          "values": [
+            "retry",
+            "refuse"
+          ],
+          "default": "retry",
+          "description": "What an answer that does not validate is. `retry` sends it back with its problems named \u2014 path and message per issue, bounded by `maxAttempts` \u2014 which is worth having because most schema failures are a missing field or a number sent as a string, and a model told exactly which path was wrong usually fixes it next time. It also brings the parts that make a loop honest: `attempts` on the result, usage summed across every call rather than the last one, and a correction shaped for the strategy. `refuse` throws on the first failure with the issues and the value attached, which is the right shape when the caller has its own retry policy or when a second call is not worth its latency.",
+          "affects": [
+            "core",
+            "example",
+            "test"
+          ]
+        },
+        {
+          "name": "includeTests",
+          "type": "boolean",
+          "default": true,
+          "description": "Emit an executable test suite alongside the implementation. The model is a function returning a recorded answer, so the suite is cheap and covers the things a hand-written version gets wrong: a brace inside a string, an escaped quote, brackets that balance around invalid JSON, an answer cut off mid-object, and the shape of the correction that follows a wrong one.",
+          "affects": [
+            "files",
+            "test"
+          ]
+        }
+      ],
+      "legality": [],
+      "relatedPatterns": [
+        "chat-model-port",
+        "parse-dont-validate",
+        "result",
+        "retry"
+      ],
+      "provenance": "Original implementation. The schema interface is Standard Schema v1, declared in the emitted file rather than imported: it is a structural contract that Zod 3.24+, Valibot 1.0+ and ArkType 2.0+ all satisfy, so a caller's existing schema fits with no dependency in either direction. That was verified against `zod@4.4.3` \u2014 assignability and output-type inference both, under `exactOptionalPropertyTypes` \u2014 because a hand-declared copy of someone else's interface is either checked or wrong. The JSON Schema is a separate argument because the interface deliberately carries none, and deriving it would mean importing a converter, which is the dependency the interface avoids. The model seam is the subset settled in research \u00a713 and is structurally satisfied by the `chat-model-port` pattern's `ChatModel`, checked in both directions including the tool-choice field, where the port is stricter than this seam. The correction sent after a wrong answer is shaped by a wire-format rule rather than a preference: under `tool-call` the failed attempt is an assistant message containing a tool call, and both mainstream formats reject a following request in which that call has no matching tool result, so the complaint travels as the result with `failed: true` and the call's id.",
+      "license": "original",
+      "tier": 1
+    },
+    {
+      "name": "tool-loop",
+      "title": "Tool Loop",
+      "category": "llm-orchestration",
+      "kind": "generative",
+      "intent": "Run the ask-call-answer cycle until the model has an answer, with every way it can end named and a transcript that survives each of them.",
+      "supportsSplit": false,
+      "variants": [],
+      "identifiers": [],
+      "options": [
+        {
+          "name": "execution",
+          "type": "enum",
+          "values": [
+            "parallel",
+            "sequential"
+          ],
+          "default": "parallel",
+          "description": "How several calls in one turn are run. `parallel` starts them together, which is what the shape of the turn suggests \u2014 a model that asks for three lookups at once has said nothing about their order, and running them in series turns one round trip into three. `sequential` runs them in the order the model listed, which is what tools with side effects on shared state want, and what a tool behind a rate limit or a single connection needs. The difference is visible in the emitted suite, which pins the interleaving either way, and it does not change the results the model is sent: those are ordered by the calls, not by which finished first.",
+          "affects": [
+            "core",
+            "example",
+            "test"
+          ]
+        },
+        {
+          "name": "onToolError",
+          "type": "enum",
+          "values": [
+            "report",
+            "throw"
+          ],
+          "default": "report",
+          "description": "What a tool that threw is, and a name the model made up along with it. `report` sends the failure back as that call's result with `failed: true` and the message as its output, so the model can read what went wrong and try something else \u2014 which is what recovers a run whose argument was one field short, and the reason this is the default. `throw` ends the loop with the failure, the call that caused it, and every step taken so far attached, which is what a caller wants when a tool failing means the request is over: no more tokens are spent on a model that cannot succeed. Both treat an unknown tool name the same way as a tool that threw, because that is what it is \u2014 a call that cannot be answered.",
+          "affects": [
+            "core",
+            "example",
+            "test"
+          ]
+        },
+        {
+          "name": "stopConditions",
+          "type": "boolean",
+          "default": true,
+          "description": "Emit the composable stopping surface: a `StopCondition` over the steps so far, plus `hasToolCall` for a tool whose answer ends the run, `repeatedCall` for the loop where the model asks the same thing forever, and `tokenBudget` for the one where it does so cheaply enough not to notice. Worth keeping for anything running unattended, since `maxSteps` alone bounds a stuck run only by spending its whole budget first. Turning it off leaves `maxSteps` and the model's own answer as the two ways a run ends, which is all a short scripted loop needs.",
+          "affects": [
+            "core",
+            "example",
+            "test"
+          ]
+        },
+        {
+          "name": "includeTests",
+          "type": "boolean",
+          "default": true,
+          "description": "Emit an executable test suite alongside the implementation. The model is a function returning recorded turns and the tools are functions, so the suite is cheap and covers what a hand-written loop gets wrong: the transcript after a turn with two calls, a result carrying the id of the call it answers, a tool that threw, a name no tool has, and the run that ends because the bound was reached rather than because the model was finished.",
+          "affects": [
+            "files",
+            "test"
+          ]
+        }
+      ],
+      "legality": [],
+      "relatedPatterns": [
+        "chat-model-port",
+        "parse-dont-validate",
+        "result",
+        "structured-output"
+      ],
+      "provenance": "Original implementation. The cycle is the one the mainstream agent frameworks run, and the seam is the subset settled in research \u00a713; the toolbox, the stopping conditions and the transcript are written here. Three results were settled with the compiler first. The tool a caller writes is built by a factory rather than declared as a type, because the loop dispatches on a name the *model* chose \u2014 a `string`, not a literal \u2014 so the box cannot be keyed by anything that would carry each tool's input type; declaring it over `unknown` input is refused by `strictFunctionTypes` and declaring it over `never` is refused by the parser, while a factory that closes over the input type gives the executor a typed argument and hands the loop a `run(raw: unknown)` it can call blind. That first spelling compiles in a project with `strictFunctionTypes` off, which is what makes it worth recording. A tool carries no name of its own, since the box is keyed by name and a tool holding a second copy is a tool whose name can disagree with the one it answers to. And the loop's model seam is structurally satisfied by the `chat-model-port` pattern's `ChatModel`, verified in both directions along with the messages the loop appends \u2014 an assistant turn taken from the response unreshaped, then one tool message per turn \u2014 which is the step a hand-written loop gets wrong.",
+      "license": "original",
+      "tier": 1
+    },
+    {
+      "name": "model-middleware",
+      "title": "Model Middleware",
+      "category": "llm-orchestration",
+      "kind": "generative",
+      "intent": "Wrap a chat model in layers that see every request and every response, without the caller or the provider learning that they are there.",
+      "supportsSplit": false,
+      "variants": [],
+      "identifiers": [],
+      "options": [
+        {
+          "name": "streaming",
+          "type": "boolean",
+          "default": true,
+          "description": "Whether the seam covers `stream` as well as `generate`, which brings the `wrapStream` hook and the rule that goes with it. Worth keeping for anything that streams, because a layer written only over `generate` is silently absent from a streamed call \u2014 the types permit it and nothing at run time complains, which is how a cache appears to work until the day a caller switches to streaming. Turning it off removes the stream half of the seam, so a layer that forgets it cannot be written in the first place.",
+          "affects": [
+            "core",
+            "example",
+            "test"
+          ]
+        },
+        {
+          "name": "caching",
+          "type": "boolean",
+          "default": true,
+          "description": "Emit the caching layer. Keyed on everything in a request that decides its answer \u2014 the messages, the tools, the settings \u2014 and refusing to cache a request whose `temperature` asks for a different answer each time, which is the check that separates a cache from a bug. Under `streaming` it buffers the parts and replays them, since an `AsyncIterable` is consumed once and a cache that hands the same one back twice yields nothing the second time. Nothing in a request says which model it was going to be sent to, so a store shared between two models needs a `namespace` for each; without one they answer for each other.",
+          "affects": [
+            "core",
+            "example",
+            "test"
+          ]
+        },
+        {
+          "name": "fallback",
+          "type": "boolean",
+          "default": true,
+          "description": "Emit the fallback layer: a second model that answers when the first cannot. This is the layer that only exists at this seam \u2014 a provider outage is not something the code calling the model can route around, and a middleware holding the substitute is the one place the choice is invisible from both sides. It declines to substitute for a failure a second provider would repeat, and under `streaming` it will not switch once a part has been handed over, because a caller that has already rendered half an answer cannot be given a different one.",
+          "affects": [
+            "core",
+            "example",
+            "test"
+          ]
+        },
+        {
+          "name": "includeTests",
+          "type": "boolean",
+          "default": true,
+          "description": "Emit an executable test suite alongside the implementation. The model is a function returning a recorded answer, so the suite is cheap and covers what a hand-written chain gets wrong: the order the layers see a request against the order they see the answer, a layer that changes the request for one call and not for the next, a stream that must not be started until it is read from, and a cache asked the same thing twice.",
+          "affects": [
+            "files",
+            "test"
+          ]
+        }
+      ],
+      "legality": [],
+      "relatedPatterns": [
+        "chat-model-port",
+        "decorator",
+        "retry",
+        "circuit-breaker"
+      ],
+      "provenance": "Original implementation. The hook shape \u2014 one transform over the request, one wrapper around each call \u2014 is the arrangement the mainstream provider abstractions settled on, and the reason is recorded in research \u00a713: a layer that only wants to change the request should not have to reimplement both calls, and a layer that wraps one call has to decide in the open what happens to the other. What is written here is the part that shape leaves unsaid, and it was settled with the compiler before the templates existed. The port's `generate` is generic in a `const` type parameter, which is what makes `toolChoice` refuse a name no tool declared; a wrapper that returns a model has to keep that, and it does \u2014 the returned `generate` carries the port's own signature while every layer sees one widened request, which works because the request type is covariant in its tools. Written the obvious way instead, over a single non-generic request, the wrapper typechecks and the guarantee is gone, so the emitted suite pins it with a compile-time expectation rather than a comment. Two smaller results follow from the seam rather than from taste. A per-call context is unnecessary, because a wrapping hook has both halves of a call in one closure and a local variable is the correlation id. And `stream` returns the iterable rather than a promise of one, so an asynchronous request transform still has to leave the call unsent until the first value is pulled \u2014 which an implementation that computes the next stage outside the generator gets wrong, and which the suite asserts directly.",
+      "license": "original",
+      "tier": 1
+    },
+    {
+      "name": "context-budget",
+      "title": "Context Budget",
+      "category": "llm-orchestration",
+      "kind": "generative",
+      "intent": "Fit a conversation into a model's context window before sending it, with the answer's room reserved and the turns that cannot be dropped named.",
+      "supportsSplit": false,
+      "variants": [],
+      "legality": [],
+      "relatedPatterns": [
+        "chat-model-port",
+        "tool-loop",
+        "model-middleware",
+        "result"
+      ],
+      "provenance": "Original implementation. The accounting is the part worth having and it is the part hand-written windows get wrong: the window is shared with the reply, so the room for the answer is subtracted before anything is measured, and the tool schemas travel with every request without being messages. The atomic-unit rule for a tool call and its results, the refusal to leave a gap by skipping a turn that does not fit, and the reserving of a summary's cost before the turns to summarise are chosen are all written here.",
+      "license": "original",
+      "tier": 1,
+      "identifiers": [],
+      "options": [
+        {
+          "name": "strategy",
+          "type": "enum",
+          "values": [
+            "drop-oldest",
+            "summarise",
+            "middle-out"
+          ],
+          "default": "drop-oldest",
+          "description": "Which turns lose. `drop-oldest` keeps the newest turns that fit and stops at the first one that does not, rather than stepping over it to fit a smaller turn from behind it \u2014 a conversation with a hole in it reads to the model as though those turns never happened. `summarise` makes the same choice and folds what it dropped into one message, whose cost is reserved *before* the choice rather than discovered after it, because a summary is not free and a request that overflows by exactly the size of its summary is a hard failure to read. `middle-out` keeps the oldest turns as well as the newest, on the grounds that the task was usually stated first; it needs a `reserveForHead`, and it leaves the gap unannounced \u2014 which is the trade against `summarise`.",
+          "affects": [
+            "core",
+            "example",
+            "test"
+          ]
+        },
+        {
+          "name": "toolPairing",
+          "type": "boolean",
+          "default": true,
+          "description": "Treat an assistant turn that called tools and the tool results answering it as one unit, kept or dropped whole. This is the rule a hand-written sliding window breaks: drop the assistant turn and keep the results and the request is rejected because a `toolCallId` refers to nothing; keep the turn and drop the results and it is rejected for the call nobody answered. Neither is a truncation bug the caller can see coming, because the window arithmetic was right. Off, the message union has no tool role in it at all, so a conversation carrying tool results cannot be passed in the first place.",
+          "affects": [
+            "core",
+            "example",
+            "test"
+          ]
+        },
+        {
+          "name": "onOverflow",
+          "type": "enum",
+          "values": [
+            "refuse",
+            "throw"
+          ],
+          "default": "refuse",
+          "description": "What happens when even the messages that cannot be dropped do not fit \u2014 a system prompt plus a question larger than the window. `refuse` returns the arm that says so, carrying the two numbers a caller needs to report it; `throw` raises an error carrying the same two, for a call site that has no branch to put them in. Neither shortens the question's text: a truncated question is a different question, and answering that is worse than declining.",
+          "affects": [
+            "core",
+            "example",
+            "test"
+          ]
+        },
+        {
+          "name": "includeTests",
+          "type": "boolean",
+          "default": true,
+          "description": "Emit an executable test suite alongside the implementation. Costs are counted by an injected function, so the suite pins the arithmetic exactly rather than approximately: that the reply's room comes out of the window before anything is measured, that a system prompt and the newest turn survive a window two turns wide, that the kept turns are a contiguous run, and that a tool call and its results are never separated.",
+          "affects": [
+            "files",
+            "test"
+          ]
+        }
+      ]
+    }
+  ]
+}

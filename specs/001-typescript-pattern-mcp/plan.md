@@ -48,7 +48,7 @@ equality across repeated runs and process restarts; a diff-stability harness ass
 changes produce bounded diffs; and the official MCP conformance suite against the frozen
 `2026-07-28` requirement set.
 
-**Target Platform**: Node.js 20+ for stdio (local agent hosts) and for stateless Streamable HTTP
+**Target Platform**: Node.js 22.13+ for stdio (local agent hosts) and for stateless Streamable HTTP
 (remote hosting). Verification requires a native compiler binary, so the HTTP surface targets Node
 rather than edge runtimes.
 
@@ -89,6 +89,21 @@ Evaluated against constitution v1.1.0.
 
 No unjustified violations. The single item requiring justification is recorded in Complexity
 Tracking.
+
+Two columns, and both say what was decided rather than what is built — this table is the design gate, not
+a status board, and reading it as one is a mistake worth heading off. Where the two differ today:
+
+- **Principle X** names three adapters. Two exist: the MCP server, and the CLI, whose `--json` output is
+  compared byte-for-byte against `structuredContent` by `test/parity/`. The agent skill is not built
+  (T089). The row is a PASS about a design that admits three adapters over one engine — which it does, and
+  the CLI was written against the same engine entry points with no new ones added — not a claim that all
+  three ship.
+- **Principle VI** is satisfied as designed: advisory patterns return `kind: "advisory"`, and there are
+  seven of them.
+
+Anything else asserted here is checked by `pnpm check`, which is the only status board that cannot go
+stale: lint, typecheck, the emitted catalogue schema, catalogue validation, every suite, the build, and a
+smoke run of all three published entry points against the built artifact.
 
 ## Project Structure
 

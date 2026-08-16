@@ -19,6 +19,7 @@ function patternWith(legality: unknown[]): GenerativePattern {
     intent: "Model failure as a value.",
     supportsSplit: true,
     variants: [],
+    identifiers: [],
     options: [
       {
         name: "emitScope",

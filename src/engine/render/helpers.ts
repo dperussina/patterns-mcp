@@ -64,11 +64,71 @@ export function when(
 /**
  * Joins parts with newlines, dropping blank ones. Nested arrays are flattened,
  * so a caller can pass the result of a `map` without spreading it.
+ *
+ * A part is dropped only if the whole of it is blank. Blank lines *inside* a
+ * part are kept, which is the difference between this and the version that
+ * shipped first — that one flattened every part to lines and filtered them, so
+ * a function body assembled here arrived as a wall of statements with each
+ * paragraph break silently removed. Prettier does not put them back: it
+ * preserves blank lines rather than inserting them. Leading and trailing blank
+ * lines are still stripped per part, since those are an artefact of how a
+ * template literal was written rather than something an author asked for.
  */
 export function joinLines(...parts: readonly Renderable[]): string {
   return flatten(parts)
+    .map((part) => part.replace(/^\n+/, "").replace(/\n+$/, ""))
     .filter((part) => part.trim() !== "")
     .join("\n");
+}
+
+/**
+ * A blank line an author asked for, as opposed to a part that rendered to nothing.
+ *
+ * `codeLines` needs to tell the two apart, and an empty string cannot: a disabled section and a
+ * paragraph break are both `""`. This is a value no template would produce by accident, so a blank
+ * line appears in generated output only where one was written.
+ */
+export const BLANK = "\u0000";
+
+/**
+ * Joins parts with newlines, keeping the blank lines `BLANK` asks for.
+ *
+ * For a body assembled line by line, which `joinLines` cannot do: it drops every blank part, so a
+ * function built out of conditional lines arrives as a wall of statements with each paragraph break
+ * silently removed. Prettier does not put them back — it preserves blank lines rather than inserting
+ * them, so whatever a template emits is what a caller reads.
+ *
+ * `joinLines`'s protection against blank-line drift is kept rather than traded away. A part that
+ * renders to nothing is still dropped; only `BLANK` produces a gap, runs of them collapse to one, and
+ * the leading and trailing ones go — so turning an option off cannot leave a stray blank behind
+ * (Principle I).
+ */
+export function codeLines(...parts: readonly Renderable[]): string {
+  const out: string[] = [];
+
+  for (const part of flatten(parts)) {
+    // A part that rendered to nothing leaves no trace. `BLANK` survives this, since NUL is not
+    // whitespace, which is the whole reason it is the marker.
+    if (part.trim() === "") {
+      continue;
+    }
+
+    for (const line of part.split("\n")) {
+      const blank = line === BLANK || line.trim() === "";
+
+      if (blank && (out.length === 0 || out.at(-1) === "")) {
+        continue;
+      }
+
+      out.push(blank ? "" : line);
+    }
+  }
+
+  while (out.length > 0 && out.at(-1) === "") {
+    out.pop();
+  }
+
+  return out.join("\n");
 }
 
 /**
@@ -114,7 +174,9 @@ const MIN_PROSE_WIDTH = 40;
  * hyphenating either makes it wrong.
  */
 export function wrapProse(text: string, width = PROSE_WIDTH): string[] {
-  const words = normalizeNewlines(text).split(/\s+/).filter((word) => word !== "");
+  const words = normalizeNewlines(text)
+    .split(/\s+/)
+    .filter((word) => word !== "");
   if (words.length === 0) {
     return [];
   }
@@ -176,7 +238,10 @@ export function doc(...paragraphs: readonly Renderable[]): string {
  * which is exactly the kind of miss no one notices in a template literal and
  * everyone notices in the generated file.
  */
-export function docAt(columns: number, ...paragraphs: readonly Renderable[]): string {
+export function docAt(
+  columns: number,
+  ...paragraphs: readonly Renderable[]
+): string {
   const blocks = paragraphs
     .map((paragraph) => stringify(paragraph).trim())
     .filter((paragraph) => paragraph !== "");
@@ -214,7 +279,9 @@ export function docAt(columns: number, ...paragraphs: readonly Renderable[]): st
       // without it a pattern could only include an example by hand-writing the
       // whole comment.
       if (fenced) {
-        body.push(line.trim() === "" ? `${pad} *` : `${pad} * ${line.trimEnd()}`);
+        body.push(
+          line.trim() === "" ? `${pad} *` : `${pad} * ${line.trimEnd()}`,
+        );
         continue;
       }
 
@@ -256,7 +323,10 @@ export function documentedAt(
   paragraphs: readonly Renderable[],
   code: Renderable,
 ): string {
-  return joinLines(docAt(columns, ...paragraphs), indent(stringify(code), columns));
+  return joinLines(
+    docAt(columns, ...paragraphs),
+    indent(stringify(code), columns),
+  );
 }
 
 /**
@@ -293,19 +363,25 @@ function stringify(value: Renderable): string {
   return String(value);
 }
 
+/**
+ * Each part as one string, with nested arrays inlined.
+ *
+ * Parts are kept whole rather than split into lines, which is what lets
+ * `joinLines` tell a blank part from a blank line within one.
+ */
 function flatten(parts: readonly Renderable[]): string[] {
-  const lines: string[] = [];
+  const flat: string[] = [];
   for (const part of parts) {
     if (part === undefined || part === null) {
       continue;
     }
     if (Array.isArray(part)) {
-      lines.push(...flatten(part as readonly Renderable[]));
+      flat.push(...flatten(part as readonly Renderable[]));
       continue;
     }
-    lines.push(...normalizeNewlines(String(part)).split("\n"));
+    flat.push(normalizeNewlines(String(part)));
   }
-  return lines;
+  return flat;
 }
 
 /**

@@ -31,7 +31,8 @@
                   "functional",
                   "creational",
                   "structural",
-                  "behavioral"
+                  "behavioral",
+                  "llm-orchestration"
                 ]
               },
               "intent": {
@@ -94,6 +95,28 @@
                   "type": "string",
                   "maxLength": 48,
                   "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$"
+                }
+              },
+              "identifiers": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "maxLength": 32,
+                      "pattern": "^[a-z][A-Za-z0-9]*$"
+                    },
+                    "description": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "description"
+                  ],
+                  "additionalProperties": false
                 }
               },
               "options": {
@@ -496,6 +519,28 @@
                   ],
                   "additionalProperties": false
                 }
+              },
+              "network": {
+                "type": "object",
+                "properties": {
+                  "boundary": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "defaultHost": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "boundary",
+                  "reason"
+                ],
+                "additionalProperties": false
               }
             },
             "required": [
@@ -510,6 +555,7 @@
               "kind",
               "supportsSplit",
               "variants",
+              "identifiers",
               "options",
               "legality"
             ],
@@ -537,7 +583,8 @@
                   "functional",
                   "creational",
                   "structural",
-                  "behavioral"
+                  "behavioral",
+                  "llm-orchestration"
                 ]
               },
               "intent": {

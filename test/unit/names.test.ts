@@ -4,6 +4,7 @@ import {
   deriveNames,
   loadNameTable,
   splitWords,
+  withNoun,
   type NameTable,
 } from "../../src/engine/options/names.js";
 
@@ -176,6 +177,34 @@ describe("deriveNames refusals", () => {
     expect(refusal("Cargo")).toContain("not in it");
   });
 
+  it.each([
+    // Verb-derived `-ion` nouns: the commonest shape an English domain noun takes, and every one of
+    // them takes `-s`. The `-on` rule used to claim all of these were doubtful, which refused a
+    // seventh of a realistic noun list — including the three commonest entities most services have.
+    ["Subscription", "Subscriptions"],
+    ["Transaction", "Transactions"],
+    ["Session", "Sessions"],
+    ["Permission", "Permissions"],
+    ["Region", "Regions"],
+  ])("pluralises %s confidently, since -ion is not the doubtful ending", (singular, plural) => {
+    expect(derived(singular).plural).toBe(plural);
+  });
+
+  it.each([
+    // What the `-on` rule was aimed at. Each resolves through the exception table, which is
+    // consulted before the ambiguity check — so narrowing the rule cost none of them.
+    ["Criterion", "Criteria"],
+    ["Phenomenon", "Phenomena"],
+  ])("still gives %s its Greek plural, from the table", (singular, plural) => {
+    expect(derived(singular).plural).toBe(plural);
+  });
+
+  it("still doubts a bare -on absent from the table", () => {
+    // `automata` against `automatons`, and the word is not in the table — which is the doubt the
+    // rule was written for, left intact by narrowing `-ion` out of it.
+    expect(refusal("Automaton")).toContain("Latin or Greek");
+  });
+
   it("checks ambiguity before the confident rules, so -us is not swallowed by -s", () => {
     // "Abacus" ends in -s, which the default rule would happily turn into
     // "Abacuses"; the Latin ending has to win.
@@ -195,6 +224,105 @@ describe("deriveNames refusals", () => {
   });
 });
 
+describe("withNoun", () => {
+  it("appends the pattern's noun, in every form", () => {
+    expect(withNoun(derived("Order"), "Id")).toEqual({
+      pascal: "OrderId",
+      kebab: "order-id",
+      camel: "orderId",
+    });
+  });
+
+  it("does not append a noun the name already ends with", () => {
+    // The case this exists for: `branded-type` emits `${entity}Id`, and a branded
+    // OrderId is the likeliest thing anyone asks it for. It answered OrderIdId,
+    // in a file called order-id-id.ts.
+    expect(withNoun(derived("OrderId"), "Id")).toEqual({
+      pascal: "OrderId",
+      kebab: "order-id",
+      camel: "orderId",
+    });
+  });
+
+  it("collapses an acronym written in caps, which is the same name", () => {
+    expect(withNoun(derived("OrderID"), "Id").pascal).toBe("OrderID");
+  });
+
+  it("compares whole words, so a name merely ending in those letters still takes the noun", () => {
+    // Paid and Grid end in the letters of Id without ending in the word, and a
+    // suffix comparison on the lowercased forms would swallow both.
+    expect(withNoun(derived("Paid"), "Id").pascal).toBe("PaidId");
+    expect(withNoun(derived("Grid"), "Id").pascal).toBe("GridId");
+  });
+
+  it("kebabs a multi-word noun rather than gluing it on", () => {
+    expect(withNoun(derived("Order"), "CircuitBreaker")).toEqual({
+      pascal: "OrderCircuitBreaker",
+      kebab: "order-circuit-breaker",
+      camel: "orderCircuitBreaker",
+    });
+  });
+
+  it("collapses a multi-word noun as a unit", () => {
+    expect(withNoun(derived("OrderCircuitBreaker"), "CircuitBreaker")).toEqual({
+      pascal: "OrderCircuitBreaker",
+      kebab: "order-circuit-breaker",
+      camel: "orderCircuitBreaker",
+    });
+  });
+
+  it("answers in the caller's style, not the style they happened to ask in", () => {
+    // The forms come from the derivation, so a camel-case request still yields a
+    // Pascal type name and a kebab file stem.
+    expect(withNoun(derived("orderId"), "Id")).toEqual({
+      pascal: "OrderId",
+      kebab: "order-id",
+      camel: "orderId",
+    });
+  });
+
+  it("leaves a name that is only the noun alone", () => {
+    expect(withNoun(derived("Id"), "Id").pascal).toBe("Id");
+  });
+
+  /**
+   * The overlap is removed wherever the names meet, not only when the noun is the whole of it.
+   *
+   * `typed-emitter` emits `${entity}EventName` and `${entity}Events`, and `Event` is the likeliest
+   * subject anyone gives an emitter, so the caller who would have received `OrderIdId` received
+   * `EventEventName` and `EventEvents` instead — both compiling, both exported, neither noticed by a
+   * golden suite that names everything `Order`.
+   */
+  it("drops a partial overlap, keeping the words the noun adds", () => {
+    expect(withNoun(derived("Event"), "EventName")).toEqual({
+      pascal: "EventName",
+      kebab: "event-name",
+      camel: "eventName",
+    });
+  });
+
+  it("treats the noun's plural as the same word, and keeps the plural", () => {
+    // The one case where the noun's spelling survives instead of the entity's: `Events` is what the
+    // call site asked for, and `EventEvents` names the same thing twice.
+    expect(withNoun(derived("Event"), "Events")).toEqual({
+      pascal: "Events",
+      kebab: "events",
+      camel: "events",
+    });
+  });
+
+  it("appends a plural noun that is not the entity's own", () => {
+    expect(withNoun(derived("Order"), "Events").pascal).toBe("OrderEvents");
+  });
+
+  it("derives the value form from the words, not from the first character", () => {
+    // `APIKeyId` lowercased at the first character is `aPIKeyId`, which is what two patterns emitted
+    // — one of them as the name of an exported factory.
+    expect(withNoun(derived("APIKey"), "Id").camel).toBe("apiKeyId");
+    expect(withNoun(derived("HTTPRequest"), "Id").camel).toBe("httpRequestId");
+  });
+});
+
 describe("name table", () => {
   it("stores exception keys in lowercase, which the deriver relies on", () => {
     for (const key of Object.keys(table.irregular)) {
@@ -205,23 +333,142 @@ describe("name table", () => {
     }
   });
 
-  it("holds no entry the default rule would already get right", () => {
-    // An entry that agrees with the default rule is dead weight that still has
-    // to be reviewed on every change.
-    const redundant = Object.entries(table.irregular).filter(
-      ([singular, plural]) => {
-        if (/(?:[^aeiou]o|fe|f|us|is|on|um|ex|ix)$/.test(singular)) {
-          return false;
-        }
-        const byDefault = /(?:s|x|z|ch|sh)$/.test(singular)
-          ? `${singular}es`
-          : /[^aeiou]y$/.test(singular)
-            ? `${singular.slice(0, -1)}ies`
-            : `${singular}s`;
-        return byDefault === plural;
-      },
-    );
+  it("holds no entry the rules would already get right", () => {
+    // An entry that agrees with what the deriver would have answered anyway is dead weight that still
+    // has to be reviewed on every change.
+    //
+    // Asked by removing the entry and deriving again, rather than by restating the rules here. The
+    // restatement drifted: it listed the ambiguous endings by hand, so when a bare `-s` became
+    // doubtful — which is what makes entries like `lens` load-bearing rather than redundant — this
+    // read as six words of dead weight.
+    const redundant = Object.entries(table.irregular).filter(([singular, plural]) => {
+      const without = {
+        ...table,
+        irregular: Object.fromEntries(
+          Object.entries(table.irregular).filter(([key]) => key !== singular),
+        ),
+      };
+      const derivation = deriveNames(singular, without);
+      return derivation.ok && derivation.names.plural === plural;
+    });
 
     expect(redundant).toEqual([]);
+  });
+
+  it("lists no word in both tables, where the irregular plural would win", () => {
+    const both = table.invariant.words.filter(
+      (word) => table.irregular[word] !== undefined,
+    );
+
+    expect(both).toEqual([]);
+  });
+});
+
+describe("invariant nouns", () => {
+  it.each(["Aircraft", "Corps", "Middleware", "Analytics", "Headquarters"])(
+    "leaves %s alone rather than inventing a plural for it",
+    (word) => {
+      // Each of these was pluralised confidently and wrongly before the audit —
+      // Aircrafts, Corpses, Middlewares, Analyticses, Headquarterses. They are
+      // named here because a table entry is easy to drop by accident and the
+      // sweep below would still pass with an empty list.
+      expect(derived(word).plural).toBe(word);
+    },
+  );
+
+  it("reports every listed word as invariant, in every casing style", () => {
+    for (const word of table.invariant.words) {
+      const lower = derived(word);
+      expect(lower.plural, word).toBe(word);
+      expect(lower.pluralEqualsSingular, word).toBe(true);
+
+      const pascal = word[0]!.toUpperCase() + word.slice(1);
+      expect(derived(pascal).plural, pascal).toBe(pascal);
+    }
+  });
+
+  it("covers the endings a caller is most likely to reach for", () => {
+    // The list cannot be complete, so this asserts the reasoning behind it
+    // rather than its length: a domain noun ending in -ware or -craft is a mass
+    // noun, and one of those groups is what this repository's own patterns are
+    // named after.
+    for (const word of ["firmware", "hardware", "middleware", "software"]) {
+      expect(table.invariant.words, word).toContain(word);
+    }
+    for (const word of ["aircraft", "spacecraft", "watercraft"]) {
+      expect(table.invariant.words, word).toContain(word);
+    }
+  });
+});
+
+describe("deriveNames and -ics", () => {
+  it("doubts a name ending in -ics that the table does not settle", () => {
+    // Topics is the plural of Topic, so a caller sending it as a singular has
+    // made a mistake worth naming. The previous answer was Topicses.
+    expect(refusal("Topics")).toContain("-ics");
+    expect(refusal("Metrics")).toContain("field name");
+  });
+
+  it.each(["Analytics", "Logistics", "Diagnostics", "Statistics"])(
+    "settles %s from the table, since the field name is invariant",
+    (word) => {
+      expect(derived(word).plural).toBe(word);
+    },
+  );
+});
+
+describe("deriveNames and a name that already ends in -s", () => {
+  /**
+   * A bare `-s` cannot be told apart from a plural, and pluralising one that is already plural is the
+   * `Corpses` mistake in a different place. `Orders` is what a caller reaches for when they want an
+   * order repository, and it produced `orderses` — the collection name, so it would have landed in a
+   * schema rather than only in a type name.
+   */
+  it.each(["Orders", "Items", "Payments", "CustomerOrders"])("doubts %s", (word) => {
+    expect(refusal(word)).toContain("as likely to be a plural already");
+  });
+
+  it.each([
+    ["Class", "Classes"],
+    ["Address", "Addresses"],
+    ["Process", "Processes"],
+    ["Business", "Businesses"],
+  ])("keeps -ss confident: %s", (word, plural) => {
+    // Nothing is in doubt about a double s, and refusing these would cost far more than the doubt
+    // above buys.
+    expect(derived(word).plural).toBe(plural);
+  });
+
+  it.each([
+    ["Lens", "Lenses"],
+    ["Alias", "Aliases"],
+    ["Canvas", "Canvases"],
+    ["Gas", "Gases"],
+    ["Bias", "Biases"],
+    ["Atlas", "Atlases"],
+  ])("settles the singular %s from the table", (word, plural) => {
+    // The escape hatch the doubt relies on: a genuine singular ending in a bare -s is listed, so the
+    // rule costs a caller nothing for the words that have one right answer.
+    expect(derived(word).plural).toBe(plural);
+  });
+
+  it("still explains -us and -is as the Latin ending they are", () => {
+    // Listed before the bare -s rule on purpose: "statuses against radii" is the useful explanation
+    // for these, and "a plural already" is not.
+    expect(refusal("Apparatus")).toContain("Latin or Greek");
+  });
+});
+
+describe("deriveNames and a final z", () => {
+  it("doubles a single z after a vowel", () => {
+    // The -s/-x/-z/-ch/-sh rule appended a bare -es and answered Quizes.
+    expect(derived("Quiz").plural).toBe("Quizzes");
+  });
+
+  it.each([
+    ["Waltz", "Waltzes"],
+    ["Buzz", "Buzzes"],
+  ])("leaves %s alone, where the z is not single and after a vowel", (word, plural) => {
+    expect(derived(word).plural).toBe(plural);
   });
 });

@@ -2,7 +2,15 @@
 
 ## pagination=offset
 
-refused: verification_failed
+roles: core, example, test
+order-repository-example.ts: ~ function openOrders
+order-repository.test.ts: ~ describe("paging")
+repository-core.ts: ~ const COMPARISON
+repository-core.ts: ~ function createMemoryStore
+repository-core.ts: ~ function createRepository
+repository-core.ts: ~ interface ListOptions
+repository-core.ts: ~ interface Page
+repository-core.ts: ~ interface StoreQuery
 
 ## pagination=none
 

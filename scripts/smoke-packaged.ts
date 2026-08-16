@@ -12,6 +12,10 @@
  *
  * Launched from a temporary directory, not the repository, so that any path resolved relative to the
  * current working directory fails here rather than in a user's install.
+ *
+ * All three things `package.json` publishes are exercised, because for a while only one of them was: the
+ * server binary, the `patterns` CLI binary, and the library entry loaded the way a CommonJS caller loads
+ * it. The last of those is what makes dropping the second build format a tested claim instead of a hope.
  */
 
 import { spawn } from "node:child_process";
@@ -19,7 +23,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import process from "node:process";
 
-const BIN = join(import.meta.dirname, "..", "dist", "mcp", "transports", "stdio-bin.mjs");
+const DIST = join(import.meta.dirname, "..", "dist");
+const BIN = join(DIST, "mcp", "transports", "stdio-bin.mjs");
+const CLI = join(DIST, "cli", "bin.mjs");
+const ENTRY = join(DIST, "index.mjs");
 const PROTOCOL_VERSION = "2025-11-25";
 const TIMEOUT_MS = 180_000;
 
@@ -140,6 +147,56 @@ if ((structured.files?.length ?? 0) === 0) fail("the answer carried no files");
 // sees it, since stderr is where a host surfaces server trouble.
 if (stderr.trim() !== "") fail(`the built server complained on stderr:\n${stderr}`);
 
+/** Runs node from a temporary directory and returns what it said. */
+async function runNode(
+  argv: readonly string[],
+): Promise<{ readonly code: number | null; readonly stdout: string; readonly stderr: string }> {
+  const run = spawn(process.execPath, argv, { cwd: tmpdir(), stdio: ["ignore", "pipe", "pipe"] });
+  let out = "";
+  let err = "";
+  run.stdout.setEncoding("utf8");
+  run.stderr.setEncoding("utf8");
+  run.stdout.on("data", (chunk: string) => {
+    out += chunk;
+  });
+  run.stderr.on("data", (chunk: string) => {
+    err += chunk;
+  });
+
+  const code = await new Promise<number | null>((resolve) => {
+    run.on("exit", resolve);
+  });
+
+  return { code, stdout: out, stderr: err };
+}
+
+// The CLI is a delivery surface in its own right (Principle X), and a bundling mistake breaks it
+// independently of the server — they share an engine but not an entry point.
+const listed = await runNode([CLI, "list", "--json"]);
+if (listed.code !== 0) {
+  fail(`the built CLI could not list patterns (exit ${String(listed.code)}). stderr was:\n${listed.stderr}`);
+}
+
+let listing: { readonly total?: number };
+try {
+  listing = JSON.parse(listed.stdout) as { readonly total?: number };
+} catch {
+  fail(`the built CLI wrote something other than JSON for --json: ${listed.stdout.slice(0, 200)}`);
+}
+if ((listing.total ?? 0) === 0) fail("the built CLI found no patterns, so it did not find its own catalogue");
+
+// Loaded through `require` on purpose. This is the compatibility the single ESM build rests on, and the
+// assertion that would fail first if a dependency ever introduced top-level await, which is the one thing
+// `require()` of an ESM graph still cannot do. `node -e` is CommonJS, so `require` is the real one.
+const required = await runNode([
+  "-e",
+  `const m = require(${JSON.stringify(ENTRY)}); if (typeof m.generate !== "function") throw new Error("no generate export");`,
+]);
+if (required.code !== 0) {
+  fail(`the published entry cannot be require()d, so a CommonJS caller has nothing to load:\n${required.stderr}`);
+}
+
 process.stdout.write(
-  `smoke: the built server generated ${String(structured.files?.length ?? 0)} verified files, tests passed\n`,
+  `smoke: the built server generated ${String(structured.files?.length ?? 0)} verified files, tests passed; ` +
+    `the CLI listed ${String(listing.total ?? 0)} patterns; the entry loads under require\n`,
 );

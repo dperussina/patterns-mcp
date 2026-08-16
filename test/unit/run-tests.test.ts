@@ -3,10 +3,16 @@
  * something has tried to escape them.
  */
 
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+
 import { describe, expect, it } from "vitest";
 
+import { UnsupportedRuntimeError } from "../../src/engine/errors.js";
 import { runGeneratedTests } from "../../src/engine/verify/run-tests.js";
+import { MINIMUM_NODE, runtimeSupported } from "../../src/engine/verify/runtime.js";
 import type { BundleFile } from "../../src/engine/verify/typecheck.js";
+import { runtimeRefusal } from "../../src/mcp/transports/stdio.js";
 
 const PASSING = [
   { path: "lib.ts", contents: "export const two = 2;\n" },
@@ -20,14 +26,19 @@ const PASSING = [
   },
 ] satisfies BundleFile[];
 
-/** A file that tries to do the thing the sandbox is supposed to prevent. */
+/**
+ * A file that tries to do the thing the sandbox is supposed to prevent.
+ *
+ * The callback is async so that a body can await — `fetch` is the escape that needs it, and a synchronous
+ * body is unaffected because `node:test` awaits whatever the callback returns.
+ */
 function escapeAttempt(body: string): BundleFile[] {
   return [
     {
       path: "escape.test.ts",
       contents:
         'import { test } from "node:test";\n' +
-        `test("attempts an escape", () => {\n${body}\n});\n`,
+        `test("attempts an escape", async () => {\n${body}\n});\n`,
     },
   ];
 }
@@ -207,6 +218,46 @@ describe("the sandbox holds", () => {
     expect(result.outcome).toBe("failed");
   });
 
+  // These four were the reason for the preload. `--permission` covers the filesystem, child processes,
+  // workers and addons, and nothing else — a probe with exactly the flags this sandbox uses resolved a
+  // real hostname. So each network entry point a generated test could reach for is asserted closed
+  // individually: the comment claiming they were is what went unchecked the first time.
+  it("denies fetch", async () => {
+    const result = await runGeneratedTests({
+      files: escapeAttempt('  await fetch("https://example.com");'),
+      testPaths: ["escape.test.ts"],
+    });
+    expect(result.outcome).toBe("failed");
+    expect(result.detail).toContain("denies network access");
+  });
+
+  it("denies opening a socket", async () => {
+    const result = await runGeneratedTests({
+      files: escapeAttempt('  require("node:net").connect(80, "example.com");'),
+      testPaths: ["escape.test.ts"],
+    });
+    expect(result.outcome).toBe("failed");
+    expect(result.detail).toContain("denies network access");
+  });
+
+  it("denies an HTTP request", async () => {
+    const result = await runGeneratedTests({
+      files: escapeAttempt('  require("node:https").get("https://example.com");'),
+      testPaths: ["escape.test.ts"],
+    });
+    expect(result.outcome).toBe("failed");
+    expect(result.detail).toContain("denies network access");
+  });
+
+  it("denies resolving a name, which is the step the permission model let through", async () => {
+    const result = await runGeneratedTests({
+      files: escapeAttempt('  require("node:dns").resolve("example.com", () => {});'),
+      testPaths: ["escape.test.ts"],
+    });
+    expect(result.outcome).toBe("failed");
+    expect(result.detail).toContain("denies network access");
+  });
+
   it("does not hand the sandbox this process's environment", async () => {
     const files: BundleFile[] = [
       {
@@ -242,5 +293,60 @@ describe("the sandbox holds", () => {
         }),
       ).rejects.toThrow(/Unsafe bundle path/);
     }
+  });
+});
+
+/**
+ * The runtime floor, which was learned the hard way: on Node 20 the sandbox flag is rejected by name,
+ * so every bundle carrying tests came back as "a defect in the pattern" with a reference number for a
+ * bug that did not exist. These pin the version arithmetic and the three places that have to agree
+ * about it, because the failure it prevents is one nobody can diagnose from the message it produces.
+ */
+describe("the runtime floor", () => {
+  it("accepts the floor itself and anything above it", () => {
+    for (const version of [MINIMUM_NODE, "22.13.1", "22.20.0", "24.0.0", "24.14.0"]) {
+      expect(runtimeSupported(version)).toBe(true);
+    }
+  });
+
+  it("refuses the runtimes where the sandbox flag is rejected by name", () => {
+    // 22.12.0 is the one worth naming: the permission model is present and the flag is not.
+    for (const version of ["18.20.8", "20.19.0", "22.0.0", "22.12.0"]) {
+      expect(runtimeSupported(version)).toBe(false);
+    }
+  });
+
+  it("treats a nightly as the release it was cut from, not below it", () => {
+    expect(runtimeSupported("23.0.0-nightly20241015")).toBe(true);
+  });
+
+  it("refuses a version string it cannot read, rather than assuming the best", () => {
+    expect(runtimeSupported("not-a-version")).toBe(false);
+  });
+
+  it("agrees with the engines field, which is the only claim an installer reads", async () => {
+    const path = join(import.meta.dirname, "..", "..", "package.json");
+    const manifest = JSON.parse(await readFile(path, "utf8")) as {
+      engines: { node: string };
+    };
+    expect(manifest.engines.node).toBe(`>=${MINIMUM_NODE}`);
+  });
+
+  it("stops the server before it takes a request it cannot answer", () => {
+    expect(runtimeRefusal("22.20.0")).toBeUndefined();
+
+    const refusal = runtimeRefusal("20.19.0");
+    expect(refusal).toContain("Node 20.19.0");
+    expect(refusal).toContain(MINIMUM_NODE);
+  });
+
+  it("names the runtime rather than the pattern when tests cannot be sandboxed", () => {
+    // The class, not the path: reaching the throw needs an unsupported runtime, and this suite only
+    // runs on a supported one. What is asserted is that the message blames neither the caller nor us.
+    const error = new UnsupportedRuntimeError(MINIMUM_NODE, "20.19.0");
+    expect(error.correctable).toBe(false);
+    expect(error.code).toBe("unsupported_runtime");
+    expect(error.message).toContain("Upgrade the runtime");
+    expect(error.message).not.toContain("defect in the pattern");
   });
 });

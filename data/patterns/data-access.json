@@ -8,49 +8,180 @@
       "intent": "Put a typed collection interface in front of a datastore, so query and persistence details live behind one seam instead of spreading through the code that uses them.",
       "supportsSplit": true,
       "variants": [],
+      "identifiers": [
+        {
+          "name": "entity",
+          "description": "The entity the repository stores."
+        }
+      ],
       "options": [
         {
           "name": "pagination",
           "type": "enum",
-          "values": ["cursor", "offset", "none"],
+          "values": [
+            "cursor",
+            "offset",
+            "none"
+          ],
           "default": "cursor",
           "description": "How `list` returns more records than fit in one response. `cursor` continues from the last record returned, which stays correct while records are inserted. `offset` skips a count and reports the matching total, which is what a numbered pager needs and is only consistent if nothing is inserted between requests. `none` returns every match, which is honest for a collection with a known bound and a liability otherwise.",
-          "affects": ["core", "example", "test"]
+          "affects": [
+            "core",
+            "example",
+            "test"
+          ]
         },
         {
           "name": "idStyle",
           "type": "enum",
-          "values": ["branded", "plain"],
+          "values": [
+            "branded",
+            "plain"
+          ],
           "default": "branded",
           "description": "Whether the entity's key is a distinct type or an alias for `string`. `branded` means one entity's id cannot be passed where another's is expected, at the cost of a factory call to make one. `plain` costs nothing and checks nothing.",
-          "affects": ["binding", "example", "test"]
+          "affects": [
+            "binding",
+            "example",
+            "test"
+          ]
         },
         {
           "name": "emitScope",
           "type": "enum",
-          "values": ["full", "core-only", "binding-only"],
+          "values": [
+            "full",
+            "core-only",
+            "binding-only"
+          ],
           "default": "full",
-          "description": "Which half of the pattern to emit. `full` is both. `core-only` is the datastore-independent machinery, which every entity's repository shares, with an example and suite that declare a sample binding inline since there is no binding file to import. `binding-only` is one entity's key type, collection, and factory — for a project that already has the core, and which then requires `coreModule`.",
-          "affects": ["files", "binding", "example", "test"]
+          "description": "Which half of the pattern to emit. `full` is both. `core-only` is the datastore-independent machinery, which every entity's repository shares, with an example and suite that declare a sample binding inline since there is no binding file to import. `binding-only` is one entity's key type, collection, and factory \u2014 for a project that already has the core, and which then requires `coreModule`.",
+          "affects": [
+            "files",
+            "binding",
+            "example",
+            "test"
+          ]
         },
         {
           "name": "coreModule",
           "type": "string",
           "default": "",
-          "description": "Where the already-installed core lives, as the binding should import it: `./repository-core.js`, or a package name. Required by `binding-only` and meaningless otherwise, since a full bundle carries the core beside the binding and imports it as a sibling.",
-          "affects": ["binding"]
+          "description": "Where the already-installed core lives, as the binding should import it: `./repository-core.js` beside the binding, `../lib/repository-core.js` when it sits in another directory, or a package name. Required by `binding-only` and meaningless otherwise, since a full bundle carries the core beside the binding and imports it as a sibling.",
+          "affects": [
+            "binding"
+          ]
         },
         {
           "name": "includeTests",
           "type": "boolean",
           "default": true,
           "description": "Emit an executable test suite alongside the implementation.",
-          "affects": ["files", "test"]
+          "affects": [
+            "files",
+            "test"
+          ]
         }
       ],
       "legality": [],
-      "relatedPatterns": ["result"],
+      "relatedPatterns": [
+        "result",
+        "specification"
+      ],
       "provenance": "Original implementation. The name and the intent are Martin Fowler's, from \"Patterns of Enterprise Application Architecture\" (2002), where it is described in prose rather than as code; the query language, the total-ordering rule for paging, and the Store seam are written here.",
+      "license": "original",
+      "tier": 1
+    },
+    {
+      "name": "unit-of-work",
+      "title": "Unit of Work",
+      "category": "data-access",
+      "kind": "generative",
+      "intent": "Accumulate every change a business transaction makes and write them in one commit, so a half-applied transaction and a lost update are both structurally impossible.",
+      "supportsSplit": true,
+      "variants": [],
+      "identifiers": [
+        {
+          "name": "entity",
+          "description": "The aggregate the unit of work commits."
+        }
+      ],
+      "options": [
+        {
+          "name": "tracking",
+          "type": "enum",
+          "values": [
+            "explicit",
+            "snapshot"
+          ],
+          "default": "explicit",
+          "description": "How a change is noticed. `explicit` gives each tracked record an `update` method taking a patch, so a change cannot be missed and nothing is copied — and the patch type excludes the key, which makes changing a record's identity a compile error. `snapshot` hands back a mutable draft and works out at commit what differs from a copy taken when it was loaded, which is the rendering that can be handed to domain code that mutates plain objects and knows nothing about persistence. Its costs are worth stating: one shallow copy per loaded record, comparison is by field so a nested object mutated in place is not seen (replacing it is), and the key can only be guarded when the commit runs rather than when the line is written.",
+          "affects": [
+            "core",
+            "example",
+            "test"
+          ]
+        },
+        {
+          "name": "concurrency",
+          "type": "enum",
+          "values": [
+            "version",
+            "none"
+          ],
+          "default": "version",
+          "description": "What happens when two units of work change the same record. `version` requires every record to carry a `version` number, writes each change conditional on the value that was loaded, and fails the whole commit naming the record that moved — which is the only defence available here, since reads happen before the commit and are therefore outside it. `none` is last-write-wins: the second commit silently overwrites the first, which is fine for records with a single writer and a lost update anywhere else. Choosing `version` also takes the field over: it is assigned on insert rather than supplied, and set from the stored value on commit.",
+          "affects": [
+            "core",
+            "binding",
+            "example",
+            "test"
+          ]
+        },
+        {
+          "name": "emitScope",
+          "type": "enum",
+          "values": [
+            "full",
+            "core-only",
+            "binding-only"
+          ],
+          "default": "full",
+          "description": "Which half of the pattern to emit. `full` is both. `core-only` is the tracking machinery, the store seam and the in-memory store, which every entity shares, with an example and suite that declare a sample collection inline since there is no binding file to import. `binding-only` is one entity's record constraint, collection and typed accessor — for a project that already has the core, and which then requires `coreModule`.",
+          "affects": [
+            "files",
+            "binding",
+            "example",
+            "test"
+          ]
+        },
+        {
+          "name": "coreModule",
+          "type": "string",
+          "default": "",
+          "description": "Where the already-installed core lives, as the binding should import it: `./unit-of-work-core.js` beside the binding, `../lib/unit-of-work-core.js` when it sits in another directory, or a package name. Required by `binding-only` and meaningless otherwise, since a full bundle carries the core beside the binding and imports it as a sibling.",
+          "affects": [
+            "binding"
+          ]
+        },
+        {
+          "name": "includeTests",
+          "type": "boolean",
+          "default": true,
+          "description": "Emit an executable test suite alongside the implementation. Worth keeping here even by the standards of this option elsewhere: almost everything this pattern promises is about what is *not* written — an unchanged record, a record added and then removed, a commit that failed — and none of that is visible in the types.",
+          "affects": [
+            "files",
+            "test"
+          ]
+        }
+      ],
+      "legality": [],
+      "relatedPatterns": [
+        "repository",
+        "specification",
+        "typestate"
+      ],
+      "provenance": "Original implementation. The name and the intent are Martin Fowler's, from \"Patterns of Enterprise Application Architecture\" (2002); the collection spec, the operation batch that replaces an interactive transaction, the state collapsing rules and the type-level work are written here. Three results were settled with the compiler before any of it was written. Constraining the entity rather than the field — `T extends Readonly<Record<F, string>>` with the key field's *name* as a type parameter — makes reading a record's key an ordinary indexed access rather than a cast, and makes `Partial<Omit<T, F>>` a patch type that refuses the key. Two collections keyed on a field of the same name are otherwise the same type, so a spec carries a phantom property in its entity, which makes a function annotated for one refuse the other. And the region trick that would keep two open units of work's records apart does not work: the scope parameter is inferred at the call site, so both nested scopes get the same one and their records interchange with no diagnostic — TypeScript has no way to spell the rank-2 type that would be needed, so the guard against using a committed unit of work is a run-time refusal instead.",
       "license": "original",
       "tier": 1
     }

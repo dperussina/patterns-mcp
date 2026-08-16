@@ -89,6 +89,13 @@ function ownLineComments(source: string): readonly OwnLineComment[] {
   const walk = (node: ts.Node): void => {
     collect(node.getFullStart());
     collect(node.getEnd());
+    // A comment alone between a pair of braces belongs to no node: there is no statement for it to
+    // lead and no code on its line for it to trail, so neither position above reaches it. Scanning
+    // from just inside the brace does. An empty `catch` is where these actually occur, and one
+    // arrived over the limit and unwrapped before this was here.
+    if (source.charAt(node.getStart()) === "{") {
+      collect(node.getStart() + 1);
+    }
     node.forEachChild(walk);
   };
 

@@ -1,12 +1,13 @@
 import { defineConfig } from "vitest/config";
 
-const suites = ["unit", "contract", "golden", "determinism", "parity"] as const;
+const suites = ["unit", "contract", "golden", "determinism", "parity", "conformance"] as const;
 
 export default defineConfig({
   test: {
-    // Suites are populated over the course of implementation; without this, an
-    // empty suite fails the whole run. Revisit once every suite has tests (T111).
-    passWithNoTests: true,
+    // No `passWithNoTests`. It was here while suites were still being populated, and it outlived that:
+    // `parity` had no files at all, so `pnpm test parity` reported success for a comparison that was
+    // never made — the one suite whose absence nothing else would have revealed, since every other
+    // suite passes whether or not the two surfaces agree. A suite that loses its tests now fails.
     projects: suites.map((suite) => ({
       test: {
         name: suite,

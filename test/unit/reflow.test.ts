@@ -134,6 +134,25 @@ describe("a run of line comments over the limit", () => {
     const source = `export const a = 1; // ${"word ".repeat(30).trim()}\n`;
     expect(reflowComments(source)).toBe(source);
   });
+
+  it("reaches a comment alone between braces, which belongs to no node", () => {
+    // An empty `catch` whose only content is a note saying why. Nothing leads the comment and
+    // nothing precedes it on its line, so a pass that only looks at node boundaries walks straight
+    // past it — which is what happened, and what the emitted bundles then failed the width check on.
+    const source = [
+      "try {",
+      "  risky();",
+      "} catch {",
+      `  // ${"word ".repeat(30).trim()}`,
+      "}",
+      "",
+    ].join("\n");
+    const output = reflowComments(source);
+
+    expect(widest(output)).toBeLessThanOrEqual(LIMIT);
+    expect(output).toContain("} catch {");
+    expect(output).toContain("  risky();");
+  });
 });
 
 describe("the width", () => {

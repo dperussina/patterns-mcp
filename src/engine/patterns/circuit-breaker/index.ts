@@ -21,7 +21,8 @@
  */
 
 import { siblingSpecifier } from "../../generate/imports.js";
-import { expectFile } from "../expect-file.js";
+import { withNoun } from "../../options/names.js";
+import { expectFileEntry, frameworkImports } from "../expect-file.js";
 import { dedent, doc, docAt, joinLines, sections, when } from "../../render/helpers.js";
 import type { PatternModule, RenderContext, RenderedFile } from "../types.js";
 
@@ -65,7 +66,7 @@ export const circuitBreakerPattern: PatternModule = {
       });
 
       if (conventions.testFramework === "node-test") {
-        files.push({ path: "expect.ts", role: "test", contents: expectHelper() });
+        files.push(expectFileEntry());
       }
     }
 
@@ -91,12 +92,14 @@ function namesFor(context: RenderContext): Names {
     };
   }
 
+  const breaker = withNoun(entity, "CircuitBreaker");
+
   return {
-    stem: `${entity.kebab}-circuit-breaker`,
-    breaker: `${entity.pascal}CircuitBreaker`,
-    policy: `${entity.pascal}BreakerPolicy`,
-    options: `${entity.pascal}BreakerOptions`,
-    openError: `${entity.pascal}BreakerOpenError`,
+    stem: breaker.kebab,
+    breaker: breaker.pascal,
+    policy: withNoun(entity, "BreakerPolicy").pascal,
+    options: withNoun(entity, "BreakerOptions").pascal,
+    openError: withNoun(entity, "BreakerOpenError").pascal,
     defaults: `DEFAULT_${entity.screamingSnake}_BREAKER_POLICY`,
   };
 }
@@ -589,14 +592,12 @@ function example(context: RenderContext, names: Names): string {
 
 function tests(context: RenderContext, names: Names, shape: Shape): string {
   const specifier = importSpecifier(context, names.stem);
-  const framework = context.conventions.testFramework;
 
   return sections(
     testHeader(),
     joinLines(
-      frameworkImport(framework),
+      frameworkImports(context.conventions),
       `import { ${names.breaker}, ${names.openError} } from "${specifier}";`,
-      when(framework === "node-test", `import { expect } from "./expect.js";`),
     ),
     testHelpers(names, shape),
     describeBlock("opening", openingTests(names, shape)),
@@ -1009,24 +1010,6 @@ function describeBlock(name: string, body: string): string {
       ${body}
     });
   `;
-}
-
-function frameworkImport(framework: string): string {
-  switch (framework) {
-    case "vitest":
-      return `import { describe, expect, it } from "vitest";`;
-    case "jest":
-      return `import { describe, expect, it } from "@jest/globals";`;
-    case "node-test":
-      return `import { describe, it } from "node:test";`;
-    default:
-      return "";
-  }
-}
-
-/** The matchers this pattern's suite calls; the file itself is shared with every other pattern. */
-function expectHelper(): string {
-  return expectFile(["toBe", "toEqual", "toBeInstanceOf", "toThrow"]);
 }
 
 /** Import specifiers follow the caller's conventions, not ours (FR-030). */

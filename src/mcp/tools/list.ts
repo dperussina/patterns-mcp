@@ -12,13 +12,14 @@
 import { z } from "zod";
 
 import { CategorySchema, PatternKindSchema, TierSchema } from "../../engine/catalog/schema.js";
-import { listPatterns } from "../../index.js";
-import type { PatternSummary } from "../../index.js";
-import { toErrorResult } from "../errors.js";
+import { listCatalogue } from "../../index.js";
+import type { Listing } from "../../index.js";
+import { cacheHintMeta } from "../cache.js";
+import { strictObject, toErrorResult } from "../errors.js";
 
 import type { CallToolResult } from "@modelcontextprotocol/server";
 
-export const listInput = z.object({
+export const listInput = strictObject({
   category: CategorySchema.optional().describe(
     "Only patterns in this category. Omit for every category.",
   ),
@@ -54,36 +55,31 @@ export const listOutput = z.object({
 
 type ListInput = z.infer<typeof listInput>;
 
-export interface Listing {
-  readonly patterns: readonly PatternSummary[];
-  /**
-   * How many matched. `patterns.length` today, and reported separately because it is the field that
-   * stays meaningful if this response ever has to be truncated.
-   */
-  readonly total: number;
-}
-
 /**
- * Shared with the catalog resource so the two cannot answer differently (contracts/mcp-resources.md).
+ * Shared with the catalog resource and with the CLI, so no two surfaces answer differently
+ * (contracts/mcp-resources.md, contracts/cli.md). The envelope itself is `listCatalogue` in the engine's
+ * public API; what this adds is the translation from a validated tool input to the engine's filters.
  *
  * Absent filters are dropped rather than passed as `undefined`. "Filter by no category" and "do not
  * filter by category" are the same intention here, and the engine's type says so by not admitting the
  * first spelling.
  */
 export async function listing(filters: ListInput = {}): Promise<Listing> {
-  const patterns = await listPatterns({
+  return await listCatalogue({
     ...(filters.category === undefined ? {} : { category: filters.category }),
     ...(filters.kind === undefined ? {} : { kind: filters.kind }),
     ...(filters.tier === undefined ? {} : { tier: filters.tier }),
   });
-
-  return { patterns, total: patterns.length };
 }
 
 export async function handleList(input: ListInput): Promise<CallToolResult> {
   try {
     const result = await listing(input);
-    return { content: [{ type: "text", text: render(result) }], structuredContent: result };
+    return {
+      content: [{ type: "text", text: render(result) }],
+      structuredContent: result,
+      _meta: cacheHintMeta(),
+    };
   } catch (error) {
     return toErrorResult(error);
   }

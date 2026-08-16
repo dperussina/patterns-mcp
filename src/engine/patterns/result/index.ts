@@ -14,7 +14,8 @@
  */
 
 import { siblingSpecifier } from "../../generate/imports.js";
-import { expectFile } from "../expect-file.js";
+import { withNoun } from "../../options/names.js";
+import { expectFileEntry, frameworkImports } from "../expect-file.js";
 import { dedent, joinLines, when } from "../../render/helpers.js";
 import type { PatternModule, RenderContext, RenderedFile } from "../types.js";
 
@@ -43,7 +44,7 @@ export const resultPattern: PatternModule = {
       // Emitting a small local helper keeps one rendering of the test body and leaves the caller with
       // a suite that depends on nothing outside the standard library.
       if (conventions.testFramework === "node-test") {
-        files.push({ path: "expect.ts", role: "test", contents: expectHelper() });
+        files.push(expectFileEntry());
       }
     }
 
@@ -62,13 +63,13 @@ interface Surface {
  */
 function stemFor(context: RenderContext): string {
   const entity = context.names.entity;
-  return entity === undefined ? "result" : `${entity.kebab}-result`;
+  return entity === undefined ? "result" : withNoun(entity, "Result").kebab;
 }
 
 /** The exported type name, matching the file. */
 function typeNameFor(context: RenderContext): string {
   const entity = context.names.entity;
-  return entity === undefined ? "Result" : `${entity.pascal}Result`;
+  return entity === undefined ? "Result" : withNoun(entity, "Result").pascal;
 }
 
 function core(context: RenderContext, surface: Surface): string {
@@ -351,7 +352,6 @@ function example(context: RenderContext, stem: string): string {
 function tests(context: RenderContext, stem: string, surface: Surface): string {
   const name = typeNameFor(context);
   const specifier = importSpecifier(context, stem);
-  const framework = context.conventions.testFramework;
 
   const imported = [
     "all",
@@ -373,7 +373,7 @@ function tests(context: RenderContext, stem: string, surface: Surface): string {
 
   return joinLines(
     dedent`
-      ${frameworkImport(framework)}
+      ${frameworkImports(context.conventions)}
       import { ${imported.join(", ")} } from "${specifier}";
       import type { ${name} } from "${specifier}";
 
@@ -475,21 +475,6 @@ function tests(context: RenderContext, stem: string, surface: Surface): string {
       `,
     ),
   );
-}
-
-function frameworkImport(framework: string): string {
-  if (framework === "node-test") {
-    return joinLines(
-      'import { describe, it } from "node:test";',
-      'import { expect } from "./expect.js";',
-    );
-  }
-  return `import { describe, expect, it } from "${framework}";`;
-}
-
-/** The assertion surface the emitted suites use, over `node:assert`. Only what those suites call. */
-function expectHelper(): string {
-  return expectFile(["toBe", "toEqual", "toThrow"]);
 }
 
 /**

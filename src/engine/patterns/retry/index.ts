@@ -19,7 +19,8 @@
  */
 
 import { siblingSpecifier } from "../../generate/imports.js";
-import { expectFile } from "../expect-file.js";
+import { withNoun } from "../../options/names.js";
+import { expectFileEntry, frameworkImports } from "../expect-file.js";
 import { dedent, joinLines, when } from "../../render/helpers.js";
 import type { PatternModule, RenderContext, RenderedFile } from "../types.js";
 
@@ -62,7 +63,7 @@ export const retryPattern: PatternModule = {
       });
 
       if (conventions.testFramework === "node-test") {
-        files.push({ path: "expect.ts", role: "test", contents: expectHelper() });
+        files.push(expectFileEntry());
       }
     }
 
@@ -84,7 +85,9 @@ function functionNameFor(context: RenderContext): string {
 
 function policyNameFor(context: RenderContext): string {
   const entity = context.names.entity;
-  return entity === undefined ? "RetryPolicy" : `${entity.pascal}RetryPolicy`;
+  return entity === undefined
+    ? "RetryPolicy"
+    : withNoun(entity, "RetryPolicy").pascal;
 }
 
 function core(context: RenderContext, shape: Shape): string {
@@ -92,6 +95,7 @@ function core(context: RenderContext, shape: Shape): string {
   const Policy = policyNameFor(context);
   const Options = `${Policy.replace(/Policy$/, "")}Options`;
   const Attempt = `${Policy.replace(/Policy$/, "")}Attempt`;
+  const Overrides = `${Policy}Overrides`;
   const Exhausted = `${Policy.replace(/RetryPolicy$/, "")}RetryExhaustedError`;
   const DEFAULTS = defaultsNameFor(Policy);
   const signalParam = when(shape.cancellable, ", signal?: AbortSignal");
@@ -130,25 +134,38 @@ function core(context: RenderContext, shape: Shape): string {
       readonly error: unknown;
     }
 
-    export interface ${Options} extends Partial<${Policy}> {
+    /**
+     * The policy, field by field, for a caller who wants to change part of it.
+     *
+     * \`Partial<${Policy}>\` in all but one respect, and the respect matters: \`Partial\` makes each field
+     * optional without making it accept \`undefined\`, so under \`exactOptionalPropertyTypes\` a caller
+     * forwarding a value they may not have — \`attempts: config.attempts\` where that is
+     * \`number | undefined\` — is rejected, and has to build the object conditionally to say the thing
+     * this type exists to let them say.
+     */
+    export type ${Overrides} = {
+      readonly [K in keyof ${Policy}]?: ${Policy}[K] | undefined;
+    };
+
+    export interface ${Options} extends ${Overrides} {
       /**
        * Whether \`error\` is worth another attempt. Defaults to retrying every failure, which is the
        * wrong default for most callers: a 400 will still be a 400 on the fourth try. Narrow it.
        */
-      readonly shouldRetry?: (error: unknown, attempt: number) => boolean;
+      readonly shouldRetry?: ((error: unknown, attempt: number) => boolean) | undefined;
       /** Called before each wait. The place to put a log line or a metric. */
-      readonly onRetry?: (attempt: ${Attempt}) => void;
+      readonly onRetry?: ((attempt: ${Attempt}) => void) | undefined;
       /**
        * How to wait. Replaceable so tests can assert the schedule without spending it — the emitted
        * suite passes one that records its arguments and returns immediately.
        */
-      readonly sleep?: (milliseconds: number${signalParam}) => Promise<void>;
+      readonly sleep?: ((milliseconds: number${signalParam}) => Promise<void>) | undefined;
     ${when(shape.random, randomOptionDoc())}
     ${when(
       shape.cancellable,
       joinLines(
         "/** Abandons the loop, including mid-wait. The signal's reason is what gets thrown. */",
-        "readonly signal?: AbortSignal;",
+        "readonly signal?: AbortSignal | undefined;",
       ),
     )}
     }
@@ -255,7 +272,7 @@ function randomOptionDoc(): string {
     " *",
     " * Must return a value in [0, 1).",
     " */",
-    "readonly random?: () => number;",
+    "readonly random?: (() => number) | undefined;",
   );
 }
 
@@ -476,7 +493,6 @@ function tests(context: RenderContext, stem: string, shape: Shape): string {
   const Exhausted = `${Policy.replace(/RetryPolicy$/, "")}RetryExhaustedError`;
   const DEFAULTS = defaultsNameFor(Policy);
   const specifier = importSpecifier(context, stem);
-  const framework = context.conventions.testFramework;
 
   return dedent`
     /**
@@ -485,14 +501,13 @@ function tests(context: RenderContext, stem: string, shape: Shape): string {
      * in microseconds.
      */
 
-    ${frameworkImport(framework)}
+    ${frameworkImports(context.conventions)}
     import {
       ${DEFAULTS},
       ${Exhausted},
       delayFor,
       ${fn},
     } from "${specifier}";
-    ${when(framework === "node-test", `import { expect } from "./expect.js";`)}
 
     /** A sleep that spends nothing and remembers everything. */
     function recorder(): { readonly waits: number[]; readonly sleep: (ms: number) => Promise<void> } {
@@ -758,24 +773,6 @@ function cancellationTests(fn: string): string {
       });
     `,
   );
-}
-
-function frameworkImport(framework: string): string {
-  switch (framework) {
-    case "vitest":
-      return `import { describe, expect, it } from "vitest";`;
-    case "jest":
-      return `import { describe, expect, it } from "@jest/globals";`;
-    case "node-test":
-      return `import { describe, it } from "node:test";`;
-    default:
-      return "";
-  }
-}
-
-/** The matchers this pattern's suite calls; the file itself is shared with every other pattern. */
-function expectHelper(): string {
-  return expectFile(["toBe", "toEqual", "toBeInstanceOf", "toHaveLength", "toBeLessThan"]);
 }
 
 /** Import specifiers follow the caller's conventions, not ours (FR-030). */

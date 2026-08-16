@@ -112,8 +112,15 @@ describe("joinLines", () => {
     expect(joinLines(["a", "b"], "c")).toBe("a\nb\nc");
   });
 
-  it("splits multi-line parts so a blank line inside one is still dropped", () => {
-    expect(joinLines("a\n\nb")).toBe("a\nb");
+  it("keeps a blank line inside a part, because a paragraph break was meant", () => {
+    // The first version of this dropped it: parts were flattened to lines and every blank one was
+    // filtered, so a function body assembled here arrived with each paragraph break removed. Prettier
+    // preserves blank lines rather than inserting them, so nothing downstream put them back.
+    expect(joinLines("a\n\nb")).toBe("a\n\nb");
+  });
+
+  it("still strips blank lines at the edges of a part, which are an artefact of the template", () => {
+    expect(joinLines("\na\n", "b")).toBe("a\nb");
   });
 });
 

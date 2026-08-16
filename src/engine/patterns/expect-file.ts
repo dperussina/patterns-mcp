@@ -9,19 +9,63 @@
  *
  * Shared across patterns rather than written per pattern. It was written three times before this file
  * existed, in three slightly different forms, and the next seventeen patterns would each have made the
- * same choices again. Each pattern names the matchers its suite uses, because the emitted surface should
- * be the assertions the tests actually make: an unused matcher is unexercised code shipped to a caller,
- * and `toBeCloseTo` sitting unused in an emitted file is a small lie about what was verified.
+ * same choices again.
+ *
+ * **The surface is fixed, not tailored per pattern, and that is the whole point.** Each pattern used to
+ * name the matchers its suite used, on the reasoning that an unused matcher is unexercised code shipped
+ * to a caller. The reasoning was sound and the consequence was a broken product: every pattern emits
+ * this at the same path, so a caller who asks for two patterns gets two different files written to
+ * `expect.ts`, and the second silently overwrites the first. Whichever suite lost then fails to compile
+ * against a shim missing half its matchers. Nothing caught it, because a bundle is verified alone and
+ * each of them is correct alone — it took generating a repository, a retry and a branded type into one
+ * directory and running `tsc` to see 18 errors.
+ *
+ * So the shim is one canonical file: the full matcher set, the rejection mirror always, and a header
+ * naming no pattern. Two bundles now write identical bytes, which makes the collision a no-op. The cost
+ * is a handful of matchers a given suite does not call, which is worth paying — an unused method on a
+ * test helper is a far smaller lie than a suite that cannot compile.
  */
 
-import { dedent, joinLines, when } from "../render/helpers.js";
+import { importsFrom, siblingSpecifier } from "../generate/imports.js";
+import { dedent, joinLines } from "../render/helpers.js";
+
+import type { Conventions } from "../options/conventions.js";
+import type { RenderedFile } from "./types.js";
+
+/** The stem every pattern emits this under, so a file and the import that reaches it agree. */
+const EXPECT_STEM = "expect";
 
 /**
- * The matchers a generated suite may ask for.
+ * The import lines a generated suite needs to reach its runner and its assertions.
  *
- * A closed set, so that a pattern reaching for a matcher that does not exist is a compile error in the
- * template rather than a `TypeError` inside a generated test. Deliberately narrow: this mirrors the
- * subset the verification sandbox's own Vitest shim supports, and the two must agree — a matcher
+ * Here rather than in each pattern because getting it wrong is invisible: the verification sandbox
+ * shims `vitest` so that a bundle can be executed at all (see `verify/test-shims.ts`), which means a
+ * suite that imports from `"vitest"` in a `node:test` project passes verification and then fails in
+ * the caller's repository, where nothing shims anything. Two patterns shipped that way before this
+ * existed.
+ *
+ * `expect` comes from the emitted shim under `node:test` and from the framework otherwise, so a
+ * pattern asks for its runner and gets whichever pair is right.
+ */
+export function frameworkImports(conventions: Conventions): string {
+  if (conventions.testFramework === "node-test") {
+    return joinLines(
+      importsFrom(conventions, "node:test", { values: ["describe", "it"] }),
+      importsFrom(conventions, siblingSpecifier(conventions, EXPECT_STEM), { values: ["expect"] }),
+    );
+  }
+
+  return conventions.testFramework === "vitest"
+    ? importsFrom(conventions, "vitest", { values: ["describe", "expect", "it"] })
+    : "";
+}
+
+/**
+ * The matchers this shim offers, and so the matchers a generated suite may use.
+ *
+ * A closed set, so that a suite reaching for a matcher that does not exist is a compile error in the
+ * caller's project rather than a `TypeError` inside a generated test. Deliberately narrow: this mirrors
+ * the subset the verification sandbox's own Vitest shim supports, and the two must agree — a matcher
  * available here but not there would produce a bundle that typechecks and cannot be executed.
  */
 export type Matcher =
@@ -65,10 +109,21 @@ const DEFINITIONS: Readonly<Record<Matcher, Definition>> = {
    * The optional pattern is matched against the thrown error's message, which is what Vitest does with
    * a `RegExp` argument. Without it a suite could only assert that *something* threw, and "it threw the
    * wrong error" is the failure a test of an error path most needs to catch.
+   *
+   * The absent pattern is a separate call rather than one forwarding `expected` straight through:
+   * `assert.throws`'s matcher parameter is required in the overload that takes one, so passing a
+   * `RegExp | undefined` matches neither overload and does not compile in the caller's project.
    */
   toThrow: {
     signature: "toThrow(expected?: RegExp): void",
-    body: "assert.throws(actual as () => unknown, expected);",
+    body: joinLines(
+      "const call = actual as () => unknown;",
+      "if (expected === undefined) {",
+      "  assert.throws(call);",
+      "  return;",
+      "}",
+      "assert.throws(call, expected);",
+    ),
   },
   toContain: {
     signature: "toContain(expected: unknown): void",
@@ -89,58 +144,53 @@ const DEFINITIONS: Readonly<Record<Matcher, Definition>> = {
 };
 
 /** The file name every pattern emits this as, so two patterns in one directory agree on it. */
-export const EXPECT_FILE_PATH = "expect.ts";
+export const EXPECT_FILE_PATH = `${EXPECT_STEM}.ts`;
 
-export interface ExpectFileOptions {
-  /**
-   * Whether the suite asserts on rejected promises.
-   *
-   * Off by default because the surface is only worth emitting to a caller who uses it. A pattern whose
-   * every method returns a promise needs it: the alternative is a `try`/`catch` around each error-path
-   * assertion, and eight lines where one would do is how a suite stops being read.
-   */
-  readonly rejects?: boolean;
+/**
+ * The shim as a bundle entry, marked shared so it is attributed to no single pattern.
+ *
+ * Patterns call this rather than assembling the entry themselves. Twenty-six of them used to repeat the
+ * path, the role and their own matcher list, which is twenty-six chances to spell the path differently
+ * or to forget the marker — and either mistake reappears as a collision in a caller's directory rather
+ * than as a failure here.
+ */
+export function expectFileEntry(): RenderedFile {
+  return { path: EXPECT_FILE_PATH, role: "test", contents: expectFile(), provenance: "shared" };
 }
 
 /**
- * Matchers are emitted in a fixed order rather than the order a pattern listed them, and duplicates
- * collapse. Otherwise two patterns asking for the same set in a different sequence would emit different
- * bytes for the same file (Principle I).
+ * The shim's contents: every matcher, in a fixed order, with the rejection mirror.
+ *
+ * Takes no arguments by design. Anything that varied the bytes per caller would put us back where this
+ * started, since every bundle writes them to the same path.
  */
-export function expectFile(
-  matchers: readonly Matcher[],
-  options: ExpectFileOptions = {},
-): string {
-  const order = Object.keys(DEFINITIONS) as readonly Matcher[];
-  const used = order.filter((matcher) => matchers.includes(matcher));
-  const chosen = used.length > 0 ? used : (["toBe"] as const);
+export function expectFile(): string {
+  const chosen = Object.keys(DEFINITIONS) as readonly Matcher[];
 
   // `toThrow` takes the call itself, so under `rejects` it would mean "the rejection reason is a
   // function that throws". Excluded rather than emitted and never used.
   const asynchronous = chosen.filter((matcher) => matcher !== "toThrow");
-  const withRejects = options.rejects === true && asynchronous.length > 0;
 
   return dedent`
     /**
-     * The slice of the \`expect\` surface these tests use, over \`node:assert\`.
+     * The \`expect\` surface a generated suite uses, over \`node:assert\`.
      *
-     * Here so that one rendering of the suite serves every framework.
+     * Here so that one rendering of the suite serves every framework. Identical in every bundle, so a
+     * second pattern writing it over this one changes nothing.
      */
 
     import assert from "node:assert/strict";
 
     export interface Expectation {
     ${joinLines(chosen.map((matcher) => `  ${DEFINITIONS[matcher].signature};`))}
-    ${when(withRejects, "  /** The same assertions, applied to the reason a promise rejected with. */\n  readonly rejects: Rejection;")}
+      /** The same assertions, applied to the reason a promise rejected with. */
+      readonly rejects: Rejection;
     }
-    ${when(
-      withRejects,
-      `\n${dedent`
-        export interface Rejection {
-        ${joinLines(asynchronous.map((matcher) => `  ${promised(DEFINITIONS[matcher].signature)};`))}
-        }
-      `}\n`,
-    )}
+
+    export interface Rejection {
+    ${joinLines(asynchronous.map((matcher) => `  ${promised(DEFINITIONS[matcher].signature)};`))}
+    }
+
     export function expect(actual: unknown): Expectation {
       return {
     ${joinLines(
@@ -152,43 +202,34 @@ export function expectFile(
         ].join("\n"),
       ),
     )}
-    ${when(
-      withRejects,
-      joinLines(
-        "    rejects: {",
-        joinLines(
-          asynchronous.map((matcher) =>
-            [
-              `      async ${promised(DEFINITIONS[matcher].signature)} {`,
-              `        expect(await rejectionOf(actual)).${callOf(DEFINITIONS[matcher].signature)};`,
-              `      },`,
-            ].join("\n"),
-          ),
-        ),
-        "    },",
+        rejects: {
+    ${joinLines(
+      asynchronous.map((matcher) =>
+        [
+          `      async ${promised(DEFINITIONS[matcher].signature)} {`,
+          `        expect(await rejectionOf(actual)).${callOf(DEFINITIONS[matcher].signature)};`,
+          `      },`,
+        ].join("\n"),
       ),
     )}
+        },
       };
     }
-    ${when(
-      withRejects,
-      `\n${dedent`
-        /**
-         * The reason \`value\` rejected with.
-         *
-         * A promise that resolves fails here rather than passing quietly: an assertion about an error
-         * path that stops being reached is exactly the one that must not keep passing.
-         */
-        async function rejectionOf(value: unknown): Promise<unknown> {
-          try {
-            await value;
-          } catch (error) {
-            return error;
-          }
-          return assert.fail("Expected the promise to reject, but it resolved.");
-        }
-      `}`,
-    )}
+
+    /**
+     * The reason \`value\` rejected with.
+     *
+     * A promise that resolves fails here rather than passing quietly: an assertion about an error
+     * path that stops being reached is exactly the one that must not keep passing.
+     */
+    async function rejectionOf(value: unknown): Promise<unknown> {
+      try {
+        await value;
+      } catch (error) {
+        return error;
+      }
+      return assert.fail("Expected the promise to reject, but it resolved.");
+    }
   `;
 }
 

@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { ContradictoryConventionsError } from "../errors.js";
+
 /**
  * The caller's project settings. Every field is optional and every field has a
  * default, so a caller who supplies nothing still gets a fully determined
@@ -41,3 +43,31 @@ export type Conventions = z.infer<typeof ConventionsSchema>;
 /** The fully resolved defaults, for reporting and for tests to assert against. */
 export const DEFAULT_CONVENTIONS: Conventions =
   ConventionsSchema.parse(undefined);
+
+/**
+ * Refuses a set of conventions whose fields are individually valid and jointly impossible.
+ *
+ * Each axis validates alone, which is exactly why this is needed: `runtime: "browser"` is a fine answer
+ * and `testFramework: "node-test"` is a fine answer, and together they ask for a suite that imports
+ * `node:test` to run somewhere with no `node:` at all. Before this, that request was served — four files,
+ * zero diagnostics, "tests passed" — because the suite is executed here under Node, where it does pass.
+ * The caller would have discovered it in their own browser runner, holding output we told them was
+ * verified. A refusal that names both settings costs one turn; that costs their trust in the record.
+ *
+ * Deliberately a short list. A convention pair is only listed where honouring both is *impossible*, not
+ * where it is unusual: `moduleStyle: "cjs"` with `importExtensions: "js"` is unfashionable and works, and
+ * refusing taste is how a generator becomes something callers work around.
+ */
+export function assertCoherent(conventions: Conventions): void {
+  if (conventions.runtime === "browser" && conventions.testFramework === "node-test") {
+    throw new ContradictoryConventionsError(
+      ['runtime: "browser"', 'testFramework: "node-test"'],
+      "the generated suite imports `node:test`, which a browser runtime cannot resolve, so the tests " +
+        "would pass here and fail to load for you.",
+      [
+        'runtime: "node" or "neutral" to keep `node:test`',
+        'testFramework: "vitest" to keep the browser runtime',
+      ],
+    );
+  }
+}

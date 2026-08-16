@@ -27,6 +27,7 @@
  */
 
 import { importsFrom, siblingSpecifier } from "../../generate/imports.js";
+import { standIn, withNoun } from "../../options/names.js";
 import {
   dedent,
   doc,
@@ -36,7 +37,7 @@ import {
   sections,
   when,
 } from "../../render/helpers.js";
-import { EXPECT_FILE_PATH, expectFile } from "../expect-file.js";
+import { expectFileEntry, frameworkImports } from "../expect-file.js";
 import type { PatternModule, RenderContext, RenderedFile } from "../types.js";
 
 type Pagination = "cursor" | "offset" | "none";
@@ -60,6 +61,13 @@ interface Names {
   readonly coreStem: string;
   readonly bindingStem: string;
   readonly entity: string;
+  /**
+   * What the example calls its stand-in for the caller's type, which is the caller's own name unless
+   * something in that file already answers to it (FR-052).
+   */
+  readonly sampleType: string;
+  /** Whether the stand-in had to step aside, so the example can say why it is not called what you asked. */
+  readonly renamedSample: boolean;
   readonly collection: string;
   readonly idType: string;
   readonly idFactory: string;
@@ -75,8 +83,32 @@ interface Names {
 
 export const CORE_STEM = "repository-core";
 
+/**
+ * The core's exports, which the example and the suite import by name.
+ *
+ * Listed so that a caller's entity landing on one of them makes the example's stand-in step aside
+ * instead of being declared twice in the same module (FR-052).
+ */
+const DECLARED: readonly string[] = [
+  "CollectionSpec",
+  "DuplicateRecordError",
+  "KeyChangedError",
+  "MemoryStore",
+  "Page",
+  "RecordNotFoundError",
+  "Repository",
+  "Store",
+];
+
 export const repositoryPattern: PatternModule = {
   name: "repository",
+
+  /**
+   * The core's own repository type, which the binding imports. An entity of `Repository` collapses to
+   * exactly that — factory and type both — so the binding would import a name and export it. The
+   * example's stand-in can step aside; an exported binding cannot, because the caller builds against it.
+   */
+  emits: ["Repository"],
 
   render(context: RenderContext): readonly RenderedFile[] {
     const { conventions, options } = context;
@@ -113,16 +145,7 @@ export const repositoryPattern: PatternModule = {
       });
 
       if (conventions.testFramework === "node-test") {
-        files.push({
-          path: EXPECT_FILE_PATH,
-          role: "test",
-          // `rejects`, because every method here returns a promise and three of the properties worth
-          // asserting are refusals.
-          contents: expectFile(
-            ["toBe", "toEqual", "toBeUndefined", "toBeInstanceOf", "toHaveLength"],
-            { rejects: true },
-          ),
-        });
+        files.push(expectFileEntry());
       }
     }
 
@@ -1066,17 +1089,22 @@ function example(context: RenderContext, names: Names, shape: Shape): string {
       [
         `Your own \`${names.entity}\`, which the repository is typed in terms of.`,
         `It extends \`${names.recordType}\` only to say that its key is an \`${names.idType}\`. Every other field is yours, and nothing generated needs to know about them.`,
+        ...(names.renamedSample
+          ? [
+              `Called \`${names.sampleType}\` in this file only because \`${names.entity}\` is already the name of something it imports. Yours keeps the name you asked for.`,
+            ]
+          : []),
       ],
       dedent`
-        export interface ${names.entity} extends ${names.recordType} {
+        export interface ${names.sampleType} extends ${names.recordType} {
           readonly status: "open" | "closed";
           readonly total: number;
         }
       `,
     ),
     dedent`
-      export async function ${names.exampleFn}(): Promise<readonly ${names.entity}[]> {
-        const ${it} = ${names.factory}<${names.entity}>(createMemoryStore());
+      export async function ${names.exampleFn}(): Promise<readonly ${names.sampleType}[]> {
+        const ${it} = ${names.factory}<${names.sampleType}>(createMemoryStore());
 
         await ${it}.insertMany([
           { id: ${key("first")}, status: "open", total: 120 },
@@ -1127,7 +1155,6 @@ function keyLiteral(names: Names, shape: Shape): (value: string) => string {
 function tests(context: RenderContext, names: Names, shape: Shape): string {
   const coreSpec = siblingSpecifier(context.conventions, names.coreStem);
   const bindingSpec = siblingSpecifier(context.conventions, names.bindingStem);
-  const framework = context.conventions.testFramework;
   const it = names.instance;
   const key = keyLiteral(names, shape);
   const inlineBinding = shape.standalone;
@@ -1138,7 +1165,7 @@ function tests(context: RenderContext, names: Names, shape: Shape): string {
       "Nothing here is mocked. The store is a real implementation of the seam a datastore adapter implements, so a failure means the repository is wrong rather than that a stub disagreed with it.",
     ),
     joinLines(
-      frameworkImport(framework),
+      frameworkImports(context.conventions),
       importsFrom(context.conventions, coreSpec, {
         values: [
           "DuplicateRecordError",
@@ -1159,7 +1186,6 @@ function tests(context: RenderContext, names: Names, shape: Shape): string {
           types: [names.recordType],
         }),
       ),
-      when(framework === "node-test", `import { expect } from "./expect.js";`),
     ),
     when(
       inlineBinding,
@@ -1369,7 +1395,12 @@ function listingTests(names: Names, shape: Shape): string {
     );
   }
 
-  const window = shape.pagination === "cursor" ? "after: first.cursor" : "offset: 1";
+  // "Carry on from the page I am holding", in each dialect. Spelled from the page rather than as a
+  // literal because the literal has to agree with `limit` and silently does not when it stops:
+  // `offset: 1` after a two-record page re-reads the second record, which is how this suite spent a
+  // while asserting `[a, b, b, c]` was `[a, b, c]`.
+  const window =
+    shape.pagination === "cursor" ? "after: first.cursor" : "offset: first.items.length";
 
   return joinLines(
     dedent`
@@ -1439,19 +1470,6 @@ function describeBlock(name: string, body: string): string {
   `;
 }
 
-function frameworkImport(framework: string): string {
-  switch (framework) {
-    case "vitest":
-      return `import { describe, expect, it } from "vitest";`;
-    case "jest":
-      return `import { describe, expect, it } from "@jest/globals";`;
-    case "node-test":
-      return `import { describe, it } from "node:test";`;
-    default:
-      return "";
-  }
-}
-
 /**
  * Every name the emitted files use, derived once.
  *
@@ -1468,6 +1486,8 @@ function namesFor(context: RenderContext): Names {
       coreStem: CORE_STEM,
       bindingStem: "entity-repository",
       entity: "Entity",
+      sampleType: "Entity",
+      renamedSample: false,
       collection: "entities",
       idType: "EntityId",
       idFactory: "entityId",
@@ -1484,15 +1504,25 @@ function namesFor(context: RenderContext): Names {
   // silent coin-flip would decide a table name.
   const plural = entity.pluralStem.replaceAll("-", "_");
 
+  const id = withNoun(entity, "Id");
+  const repository = withNoun(entity, "Repository");
+  const recordType = withNoun(entity, "Record").pascal;
+
+  // `AuditRecord` derives the record type `AuditRecord`, so the example's own domain type — the one
+  // standing in for the caller's — has to give way rather than be declared twice (FR-052).
+  const sampleType = standIn(entity.pascal, [recordType, id.pascal, "Row", ...DECLARED]);
+
   return {
     coreStem: CORE_STEM,
-    bindingStem: `${entity.stem}-repository`,
+    bindingStem: repository.kebab,
     entity: entity.pascal,
+    sampleType,
+    renamedSample: sampleType !== entity.pascal,
     collection: plural,
-    idType: `${entity.pascal}Id`,
-    idFactory: `${entity.camel}Id`,
-    recordType: `${entity.pascal}Record`,
-    factory: `create${entity.pascal}Repository`,
+    idType: id.pascal,
+    idFactory: id.camel,
+    recordType,
+    factory: `create${repository.pascal}`,
     instance: camelOf(entity.pluralStem),
     exampleFn: `open${pascalOf(entity.pluralStem)}`,
     specConst: plural.toUpperCase(),

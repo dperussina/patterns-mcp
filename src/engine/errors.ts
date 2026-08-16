@@ -19,9 +19,13 @@ export type ErrorCode =
   | "unknown_option"
   | "invalid_option_value"
   | "illegal_combination"
+  | "unknown_identifier"
   | "invalid_identifier"
   | "missing_required_option"
   | "split_unsupported"
+  | "unconfigurable_format_option"
+  | "contradictory_conventions"
+  | "unsupported_runtime"
   | "verification_failed";
 
 export abstract class EngineError extends Error {
@@ -80,6 +84,34 @@ export class UnknownOptionError extends CorrectableError {
   }
 }
 
+/**
+ * An identifier role the pattern does not read.
+ *
+ * Separate from `UnknownOptionError` because the remedy is different: a mistyped option name is
+ * usually a near miss on a name in the list, while an undeclared *identifier* is most often a
+ * habit — `entity` supplied to every pattern, including the ones that emit a single module named
+ * after themselves and have nothing to name after a caller's type. So the message distinguishes a
+ * pattern that takes other roles from one that takes none at all, since the second is not a typo
+ * and re-reading the list would not help.
+ */
+export class UnknownIdentifierError extends CorrectableError {
+  readonly code = "unknown_identifier";
+  readonly identifier: string;
+  readonly declared: readonly string[];
+
+  constructor(identifier: string, declared: readonly string[]) {
+    super(
+      declared.length > 0
+        ? `Identifier "${identifier}" is not one this pattern generates around. ` +
+            `Declared identifiers: ${declared.join(", ")}.`
+        : `Identifier "${identifier}" is not used by this pattern, which takes none: it emits one ` +
+            `module named after itself. Omit identifiers entirely.`,
+    );
+    this.identifier = identifier;
+    this.declared = declared;
+  }
+}
+
 export class InvalidOptionValueError extends CorrectableError {
   readonly code = "invalid_option_value";
   readonly option: string;
@@ -115,11 +147,25 @@ export class IllegalCombinationError extends CorrectableError {
 
 export class InvalidIdentifierError extends CorrectableError {
   readonly code = "invalid_identifier";
+  /** The role the value was supplied for, e.g. `entity`. */
   readonly field: string;
+  /**
+   * The value that was refused.
+   *
+   * Structured rather than left inside `message`, because an adapter that has to decide whether
+   * echoing a caller value is safe cannot make that decision about a sentence. Without it, the MCP
+   * adapter scrubbed every quoted span out of the message and a refusal named the role instead of
+   * the value: "entity the supplied value is reserved", for a request that sent `Error`.
+   */
+  readonly value: string;
+  /** The constraint alone, free of both the value and the role. */
+  readonly rule: string;
 
-  constructor(field: string, problem: string) {
+  constructor(field: string, value: string, problem: string, rule: string) {
     super(problem);
     this.field = field;
+    this.value = value;
+    this.rule = rule;
   }
 }
 
@@ -150,10 +196,126 @@ export class SplitUnsupportedError extends CorrectableError {
 export class MissingRequiredOptionError extends CorrectableError {
   readonly code = "missing_required_option";
   readonly option: string;
+  /**
+   * The condition that makes the option required, as a clause — `when emitScope is "binding-only"`.
+   *
+   * A field rather than only a sentence, because an adapter rebuilds what the caller reads from these
+   * fields, and without it the best either surface could say was "required for this combination of
+   * options": true, and useless to a caller trying to work out which part of their combination to
+   * change. Our own literal text, never a caller value, so it is safe to surface verbatim (FR-009).
+   */
+  readonly because: string;
 
   constructor(option: string, because: string) {
     super(`Option "${option}" is required ${because}.`);
     this.option = option;
+    this.because = because;
+  }
+}
+
+/**
+ * A formatter option the caller may not set, or may not set to that.
+ *
+ * Correctable, and it was not: the class began life beside the allowlist that enforces it, extending
+ * plain `Error`, so it fell through every adapter's classification and a caller who mistyped
+ * `printWidth` was told the server had a defect. They were told to report it, and the message that
+ * would have fixed their call in one round trip — the option named, the permitted ones enumerated — was
+ * discarded on the way out.
+ *
+ * It lives here rather than with the allowlist for that reason. This file is the taxonomy adapters
+ * branch on, and an error class defined outside it is one nothing will think to classify. The permitted
+ * list arrives as an argument so the taxonomy does not have to import the formatter to describe it.
+ */
+export class FormatConfigError extends CorrectableError {
+  readonly code = "unconfigurable_format_option";
+  readonly option: string;
+  readonly permitted: readonly string[];
+  /**
+   * Why this value in particular is refused, for an option that is otherwise configurable.
+   *
+   * Carried as a field rather than left inside `message` because the MCP adapter rebuilds what a caller
+   * reads from these fields, and without it the two refusals here reached the caller as "printWidth
+   * cannot be set here" beside a list naming `printWidth` as configurable — a contradiction the caller
+   * cannot act on. MUST NOT interpolate an unvalidated caller value: it reaches a model verbatim, which
+   * is the guarantee `safe` exists to keep, and the only caller text either of these quotes is a literal
+   * they were matched against.
+   */
+  readonly reason: string | undefined;
+
+  constructor(option: string, permitted: readonly string[], reason?: string) {
+    super(
+      reason ??
+        `Prettier option "${option}" is not configurable here. ` +
+          `Configurable options: ${permitted.join(", ")}.`,
+    );
+    this.option = option;
+    this.permitted = permitted;
+    this.reason = reason;
+  }
+}
+
+/**
+ * Two convention settings that are each valid and cannot both be honoured.
+ *
+ * Distinct from `IllegalCombinationError`, which is about a *pattern's* declared rules: those live in the
+ * catalogue and differ per pattern, while these hold for every pattern because they are about the caller's
+ * project rather than about what is being generated. Keeping them apart also keeps the refusal honest — a
+ * caller told their combination is illegal for `result` would reasonably try another pattern.
+ *
+ * Named as a pair rather than as one offending field. There is no fact about which of the two is wrong:
+ * a caller who set `runtime` to `browser` and `testFramework` to `node-test` may have meant either, so
+ * naming one as the error picks a side, and the fix has to mention both anyway.
+ */
+export class ContradictoryConventionsError extends CorrectableError {
+  readonly code = "contradictory_conventions";
+  /** The two settings, as `field: value`, in the order the message names them. */
+  readonly settings: readonly [string, string];
+  /** Why they cannot both hold, written for the caller. */
+  readonly conflict: string;
+  /** What to change, naming both directions, since either may be the one they meant. */
+  readonly resolutions: readonly string[];
+
+  constructor(
+    settings: readonly [string, string],
+    conflict: string,
+    resolutions: readonly string[],
+  ) {
+    super(
+      `Conventions ${settings[0]} and ${settings[1]} contradict each other: ${conflict} ` +
+        `Change one of: ${resolutions.join("; ")}.`,
+    );
+    this.settings = settings;
+    this.conflict = conflict;
+    this.resolutions = resolutions;
+  }
+}
+
+/**
+ * The runtime is too old to execute a generated test safely.
+ *
+ * Neither of the two kinds above, which is why it needs its own class rather than either. The caller's
+ * request is fine and would succeed elsewhere, so calling it correctable would send an agent looking
+ * for a field to change; and the catalogue is fine, so reporting it as a defect in the pattern — which
+ * is what happened before this existed — sends a bug report about our code for someone else's Node
+ * version. It is the operator's to fix, and the message names what they have to do.
+ *
+ * `correctable` is false because the flag means "can the caller fix this by changing the request", and
+ * they cannot. The distinction between our defect and the environment's is carried by the code.
+ */
+export class UnsupportedRuntimeError extends EngineError {
+  readonly code = "unsupported_runtime";
+  readonly correctable = false;
+  readonly required: string;
+  readonly running: string;
+
+  constructor(required: string, running: string) {
+    super(
+      `Generated tests cannot be executed on Node ${running}. They run inside Node's permission ` +
+        `model, which is how a bundle is proved to work without being granted the filesystem, and the ` +
+        `flag enabling it is not recognised before Node ${required}. Upgrade the runtime.`,
+    );
+    this.required = required;
+    this.running = running;
   }
 }
 

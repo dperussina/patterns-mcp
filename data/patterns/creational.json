@@ -1,6 +1,50 @@
 {
   "patterns": [
     {
+      "name": "builder",
+      "title": "Stepwise Builder",
+      "category": "creational",
+      "kind": "generative",
+      "intent": "Assemble a value a field at a time, so that a half-finished one cannot be mistaken for a finished one and the fields still owed are named where the mistake is made.",
+      "supportsSplit": false,
+      "variants": [],
+      "identifiers": [
+        {
+          "name": "entity",
+          "description": "The type being built."
+        }
+      ],
+      "options": [
+        {
+          "name": "completeness",
+          "type": "enum",
+          "values": ["typestate", "result", "throw"],
+          "default": "typestate",
+          "description": "What happens when `build` is reached before every required field is set. `typestate` makes it a compile error naming the fields still owed, which is the version worth generating — the builder's type carries which fields have been supplied. `result` and `throw` check at run time instead, which is what a builder fed from a form or a config file needs, since the fields it will receive are not known statically.",
+          "affects": ["core", "example", "test"]
+        },
+        {
+          "name": "collections",
+          "type": "boolean",
+          "default": true,
+          "description": "Emit `add`, which appends to a field whose value is an array and accepts only such a field. Off for a target with no collections, where the method would be unreachable surface.",
+          "affects": ["core", "example", "test"]
+        },
+        {
+          "name": "includeTests",
+          "type": "boolean",
+          "default": true,
+          "description": "Emit an executable test suite alongside the implementation.",
+          "affects": ["files", "test"]
+        }
+      ],
+      "legality": [],
+      "relatedPatterns": ["factory", "result"],
+      "provenance": "Original implementation. \"Builder\" is from Gamma, Helm, Johnson and Vlissides, \"Design Patterns\" (1994), where it separates the construction of a complex object from its representation. The book's version reports an unfinished object at run time or not at all; the typestate rendering here — a phantom type parameter accumulating the keys supplied, and a `build` member whose type names what is missing — is a TypeScript type-system construction adapted from no source.",
+      "license": "original",
+      "tier": 1
+    },
+    {
       "name": "factory",
       "title": "Typed Factory",
       "category": "creational",
@@ -8,6 +52,12 @@
       "intent": "Construct one of several product types from a key, with the key narrowing the return type at compile time and untrusted keys handled at the boundary.",
       "supportsSplit": false,
       "variants": [],
+      "identifiers": [
+        {
+          "name": "entity",
+          "description": "The type the factory produces."
+        }
+      ],
       "options": [
         {
           "name": "registration",
@@ -45,6 +95,38 @@
       "provenance": "Original implementation. The factory idea is the Gang of Four's \"Design Patterns\" (1994), but nothing here is adapted from it: the book's formulation is a class hierarchy with a virtual constructor, and this is a key-indexed product map whose lookup narrows the return type, which is a TypeScript type-system construction with no equivalent in the original.",
       "license": "original",
       "tier": 1
+    },
+    {
+      "name": "singleton",
+      "title": "Singleton",
+      "category": "creational",
+      "kind": "advisory",
+      "intent": "Guarantee that a type has one instance and give the program a way to reach it.",
+      "relatedPatterns": [],
+      "provenance": "Advisory entry. \"Singleton\" is from Gamma, Helm, Johnson and Vlissides, \"Design Patterns\" (1994), where a private constructor and a static accessor enforce single instantiation. No implementation is adapted, because none is offered: the guidance is the entry.",
+      "license": "original",
+      "tier": 1,
+      "advisory": {
+        "alternative": "a module that exports the value",
+        "rationale": "An ES module is already a singleton. The runtime evaluates it once per specifier and hands every later importer the same bindings, so single instantiation is a property of the module system rather than something a class has to defend. What the class adds on top is the part that hurts: a private constructor makes the value unconstructable in a test, so the suite that needs a second one for isolation has to reach past the accessor or reset shared state between cases, and the global reachability that made the pattern attractive is what makes those tests order-dependent. Exporting the value keeps the single instance and loses the ceremony; where a test genuinely needs its own, export the factory beside it and let the module hold the default.",
+        "example": "// config.ts — one instance, because the module is evaluated once.\nexport const config = loadConfig();\n\n// Export the maker too, so a test can build its own without defeating anything.\nexport function loadConfig(): Config {\n  return { retries: 3 };\n}"
+      }
+    },
+    {
+      "name": "prototype",
+      "title": "Prototype",
+      "category": "creational",
+      "kind": "advisory",
+      "intent": "Create an object by copying an existing one rather than by naming its class.",
+      "relatedPatterns": ["builder"],
+      "provenance": "Advisory entry. \"Prototype\" is from Gamma, Helm, Johnson and Vlissides, \"Design Patterns\" (1994), where a `clone` method on an abstract prototype produces new instances. No implementation is adapted; the guidance is the entry.",
+      "license": "original",
+      "tier": 2,
+      "advisory": {
+        "alternative": "object spread for a shallow copy, or `structuredClone` for a deep one",
+        "rationale": "The pattern exists because a language with nominal types and no object literals needs a virtual method to copy an object without naming its class. TypeScript needs neither: spread copies the fields a type declares and is checked against that type, and `structuredClone` — in every runtime this targets — deep-copies a value including Maps, Sets and Dates without the class having to cooperate. A hand-written `clone` in this setting is worse than the built-ins on the axis that matters, which is what happens when a field is added: spread and `structuredClone` carry it automatically, while `clone` keeps compiling and silently stops copying it.",
+        "example": "const draft = { ...template, title: \"Second\" }; // shallow, and typechecked\nconst deep = structuredClone(template); // nested Maps, Sets and Dates included"
+      }
     }
   ]
 }

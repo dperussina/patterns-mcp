@@ -9,11 +9,14 @@
  * Takes the request as a single JSON argument so the harness can vary it without a second file.
  */
 
-import { disposeEngine, generate } from "../../src/engine/generate/index.js";
+import { disposeEngine } from "../../src/engine/generate/index.js";
+import { generateBundle } from "../bundle.js";
+
+import type { GenerateRequest } from "../../src/engine/generate/index.js";
 
 const request: unknown = JSON.parse(process.argv[2] ?? "{}");
 
-const result = await generate(request as Parameters<typeof generate>[0]);
+const result = await generateBundle(request as GenerateRequest);
 
 // Files only, plus the content hash. Deliberately not the compiler version: that legitimately differs
 // between toolchains and is not part of what must be byte-identical.

@@ -281,10 +281,17 @@ const NODE_BUILTIN_TYPES: Readonly<Record<string, string>> = {
     // \`assert.equal\` fail to compile, which reads as a broken pattern rather than a missing declaration.
     equal<T>(actual: unknown, expected: T, message?: string): void;
     notEqual(actual: unknown, expected: unknown, message?: string): void;
+    // Two overloads, with the matcher *required* in the second, because that is the shape
+    // \`@types/node\` has. Declared as one signature with an optional matcher instead — which is the
+    // obvious way to write it — every call typechecks here and \`assert.throws(call, matcher)\` with a
+    // \`RegExp | undefined\` fails in the caller's repository, where \`undefined\` is not an
+    // \`AssertPredicate\`. A declaration looser than the real one lets exactly the bugs through that
+    // it exists to catch, so these track \`@types/node\` even where narrower would be simpler.
+    throws(block: () => unknown, message?: string | Error): void;
     throws(
       block: () => unknown,
-      expected?: RegExp | (abstract new (...args: never[]) => Error),
-      message?: string,
+      expected: RegExp | (abstract new (...args: never[]) => Error),
+      message?: string | Error,
     ): void;
     fail(message?: string): never;
   }

@@ -17,11 +17,18 @@
 
 import { afterAll } from "vitest";
 
-afterAll(async () => {
-  // Imported here rather than at the top of the file, and this is not a style choice. A setup file runs
-  // before the test file, so a static import would load the engine — and the whole pattern graph behind
-  // it — before `vi.mock` had a chance to replace anything, silently defeating every suite that mocks a
-  // pattern module. Six of them, when this was written the obvious way.
-  const { disposeEngine } = await import("../src/engine/generate/index.js");
-  await disposeEngine();
-});
+afterAll(
+  async () => {
+    // Imported here rather than at the top of the file, and this is not a style choice. A setup file runs
+    // before the test file, so a static import would load the engine — and the whole pattern graph behind
+    // it — before `vi.mock` had a chance to replace anything, silently defeating every suite that mocks a
+    // pattern module. Six of them, when this was written the obvious way.
+    const { disposeEngine } = await import("../src/engine/generate/index.js");
+    await disposeEngine();
+  },
+  // Vitest's default of ten seconds is not enough, and the failure it produces is a whole suite reported
+  // as failed after every test in it passed. The conformance file runs for minutes and leaves the machine
+  // saturated, so the subprocess this is waiting on may not be scheduled promptly; the number is a
+  // ceiling on a wait, not a budget anything is expected to use.
+  60_000,
+);

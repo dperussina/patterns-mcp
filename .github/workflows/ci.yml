@@ -1,0 +1,90 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Nothing here needs write access, and a workflow that runs untrusted pull-request code should not have it.
+permissions:
+  contents: read
+
+# A superseded run tells you about a commit nobody is looking at any more.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # One step, deliberately: `pnpm check` is the same gate that runs locally, so CI cannot come to a
+  # different conclusion than a developer did. It covers lint — which is where the rule that the engine
+  # must not import MCP lives, and the rules that keep generation deterministic — then typecheck, the
+  # catalogue and licence claims, every suite, the build, and a smoke test of the packaged server.
+  check:
+    name: check (node ${{ matrix.node }}, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # 22 is the floor this package declares; 24 is current. Both are checked because the engine
+        # spawns processes, writes temporary directories, and relies on Node's permission model, and
+        # every one of those has changed behaviour across a major before.
+        os: [ubuntu-latest]
+        node: ["22", "24"]
+        include:
+          # macOS earns a job because the sandbox resolves symlinked temporary directories there, which
+          # no Linux runner exercises: the permission model checks the resolved path, and granting the
+          # unresolved one denies every read.
+          - os: macos-latest
+            node: "24"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm check
+
+  # The floor itself, on a runtime that actually lacks the flag. The unit tests can only assert the
+  # version arithmetic; this asserts the behaviour, because the failure it prevents was invisible —
+  # before the check existed, an old Node answered every request with "this is a defect in the pattern"
+  # and a reference number for a bug that did not exist.
+  refuses-old-node:
+    name: refuses a runtime that cannot sandbox tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm build
+
+      # Built on a supported runtime and then run on an unsupported one, which is exactly the situation
+      # a user hits: the package installs fine and the failure is deferred to the first request.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: the server refuses to start, and says why
+        run: |
+          set -uo pipefail
+          output=$(node dist/mcp/transports/stdio-bin.mjs 2>&1); status=$?
+          echo "$output"
+          if [ "$status" -eq 0 ]; then
+            echo "::error::the server started on $(node --version), where generated tests cannot be sandboxed"
+            exit 1
+          fi
+          grep -q "Refusing to start" <<<"$output"
+          grep -q "22.13.0" <<<"$output"

@@ -1,6 +1,67 @@
 {
   "patterns": [
     {
+      "name": "semaphore",
+      "title": "Bounded Concurrency Semaphore",
+      "category": "async-resilience",
+      "kind": "generative",
+      "intent": "Hold the number of operations running at once to a fixed limit, queueing the rest in arrival order, without leaking a permit when one of them fails or is abandoned.",
+      "supportsSplit": false,
+      "variants": [],
+      "identifiers": [
+        {
+          "name": "entity",
+          "description": "The resource whose concurrency is being limited."
+        }
+      ],
+      "options": [
+        {
+          "name": "cancellation",
+          "type": "enum",
+          "values": [
+            "abort-signal",
+            "none"
+          ],
+          "default": "abort-signal",
+          "description": "Whether a caller can abandon a wait. `abort-signal` accepts a signal, removes the waiter from the queue when it fires, and hands on a permit that arrives for a waiter already gone \u2014 the race that turns a cancellable limiter into a stalled one. `none` emits a semaphore whose waiters cannot be withdrawn, and therefore no queue-removal path to get wrong.",
+          "affects": [
+            "core",
+            "example",
+            "test"
+          ]
+        },
+        {
+          "name": "weighted",
+          "type": "boolean",
+          "default": false,
+          "description": "Whether a caller may take more than one permit at a time, for a limit that is a budget rather than a count \u2014 bytes in flight rather than requests. Weights change the fairness rule: a lighter waiter behind a heavier one must not be served first, or the heavy one starves under sustained load, so the queue head blocks. Off, every waiter takes one permit and the head can never block.",
+          "affects": [
+            "core",
+            "example",
+            "test"
+          ]
+        },
+        {
+          "name": "includeTests",
+          "type": "boolean",
+          "default": true,
+          "description": "Emit an executable test suite alongside the implementation.",
+          "affects": [
+            "files",
+            "test"
+          ]
+        }
+      ],
+      "legality": [],
+      "relatedPatterns": [
+        "circuit-breaker",
+        "retry"
+      ],
+      "provenance": "Original implementation. The counting semaphore is Dijkstra's, from \"Cooperating Sequential Processes\" (1965). What is written for this codebase is everything that makes it usable from a single-threaded event loop rather than from a thread: a permit released exactly once however the work ended, FIFO ordering so a queued caller cannot be starved, withdrawal of a cancelled waiter, and the head-of-line rule weights require.",
+      "license": "original",
+      "tier": 1
+    },
+    {
       "name": "retry",
       "title": "Retry with Backoff",
       "category": "async-resilience",
@@ -8,41 +69,73 @@
       "intent": "Re-attempt a failing asynchronous operation on a bounded, jittered schedule so a transient fault does not become a request failure.",
       "supportsSplit": false,
       "variants": [],
+      "identifiers": [
+        {
+          "name": "entity",
+          "description": "The operation being retried."
+        }
+      ],
       "options": [
         {
           "name": "backoff",
           "type": "enum",
-          "values": ["exponential", "linear", "constant"],
+          "values": [
+            "exponential",
+            "linear",
+            "constant"
+          ],
           "default": "exponential",
           "description": "How the delay grows between attempts. `exponential` multiplies by a factor each time, `linear` adds the base delay each time, `constant` waits the same amount every time.",
-          "affects": ["core", "test"]
+          "affects": [
+            "core",
+            "test"
+          ]
         },
         {
           "name": "jitter",
           "type": "enum",
-          "values": ["full", "equal", "none"],
+          "values": [
+            "full",
+            "equal",
+            "none"
+          ],
           "default": "full",
           "description": "How much randomness to mix into each delay, so that many clients failing together do not retry in lockstep. `full` picks anywhere from zero to the computed delay, `equal` picks from the upper half of it, `none` uses it exactly and needs no random source.",
-          "affects": ["core", "test"]
+          "affects": [
+            "core",
+            "test"
+          ]
         },
         {
           "name": "cancellation",
           "type": "enum",
-          "values": ["abort-signal", "none"],
+          "values": [
+            "abort-signal",
+            "none"
+          ],
           "default": "abort-signal",
           "description": "Whether the retry loop accepts an AbortSignal, so a caller can abandon it mid-wait. `none` emits a loop with no cancellation plumbing at all.",
-          "affects": ["core", "example", "test"]
+          "affects": [
+            "core",
+            "example",
+            "test"
+          ]
         },
         {
           "name": "includeTests",
           "type": "boolean",
           "default": true,
           "description": "Emit an executable test suite alongside the implementation.",
-          "affects": ["files", "test"]
+          "affects": [
+            "files",
+            "test"
+          ]
         }
       ],
       "legality": [],
-      "relatedPatterns": ["circuit-breaker"],
+      "relatedPatterns": [
+        "circuit-breaker"
+      ],
       "provenance": "Original implementation. Exponential backoff with full and equal jitter follows the schedule described in the AWS Architecture Blog's \"Exponential Backoff And Jitter\" (2015), which is a published analysis rather than a codebase; the code here is written from that description.",
       "license": "original",
       "tier": 1
@@ -55,34 +148,275 @@
       "intent": "Stop calling a dependency that is failing, and probe it occasionally to find out when it has recovered.",
       "supportsSplit": false,
       "variants": [],
+      "identifiers": [
+        {
+          "name": "entity",
+          "description": "The dependency the breaker protects."
+        }
+      ],
       "options": [
         {
           "name": "failureCounting",
           "type": "enum",
-          "values": ["consecutive", "rolling-window"],
+          "values": [
+            "consecutive",
+            "rolling-window"
+          ],
           "default": "consecutive",
           "description": "What counts as enough failure to open. `consecutive` opens after a run of failures with no success between them, and forgets the run on any success. `rolling-window` opens when enough failures land inside a time window, so an intermittent fault that never quite manages a clean run still trips it.",
-          "affects": ["core", "test"]
+          "affects": [
+            "core",
+            "test"
+          ]
         },
         {
           "name": "halfOpen",
           "type": "enum",
-          "values": ["single-probe", "sampled"],
+          "values": [
+            "single-probe",
+            "sampled"
+          ],
           "default": "single-probe",
           "description": "How recovery is tested once the cooldown expires. `single-probe` admits exactly one call and decides on it alone. `sampled` admits several and requires a quota of successes, which is slower to close but far less likely to close onto a dependency that is only intermittently back.",
-          "affects": ["core", "test"]
+          "affects": [
+            "core",
+            "test"
+          ]
         },
         {
           "name": "includeTests",
           "type": "boolean",
           "default": true,
           "description": "Emit an executable test suite alongside the implementation.",
-          "affects": ["files", "test"]
+          "affects": [
+            "files",
+            "test"
+          ]
         }
       ],
       "legality": [],
-      "relatedPatterns": ["retry"],
+      "relatedPatterns": [
+        "retry"
+      ],
       "provenance": "Original implementation. The three-state breaker with a half-open probe is the formulation in Michael Nygard's \"Release It!\" (2007), described there in prose and diagrams rather than as code; this is written from that description.",
+      "license": "original",
+      "tier": 1
+    },
+    {
+      "name": "async-queue",
+      "title": "Bounded Work Queue",
+      "category": "async-resilience",
+      "kind": "generative",
+      "intent": "Take ownership of submitted work, run a fixed number of items at once, and let the caller bound the backlog, reorder it, wait for it to drain, or be told when an item fails.",
+      "supportsSplit": false,
+      "variants": [],
+      "identifiers": [
+        {
+          "name": "entity",
+          "description": "The unit of work the queue carries."
+        }
+      ],
+      "options": [
+        {
+          "name": "ordering",
+          "type": "enum",
+          "values": [
+            "fifo",
+            "priority"
+          ],
+          "default": "fifo",
+          "description": "The order waiting work is started in. `fifo` is arrival order and needs no per-task argument. `priority` accepts a number per task and starts the highest first, breaking ties by arrival so that equal-priority work is still first-in-first-out \u2014 the tie-break is explicit rather than left to a sort being stable, because \"stable\" is a property of the sort and not of the queue, and nobody reading the code would think to check it. Note what priority costs: strictly ordered, low-priority work is starved for as long as higher-priority work keeps arriving.",
+          "affects": [
+            "core",
+            "example",
+            "test"
+          ]
+        },
+        {
+          "name": "bounded",
+          "type": "boolean",
+          "default": false,
+          "description": "Whether the backlog has a limit. Unbounded, a producer faster than the workers turns the queue into an unbounded buffer, and the failure is a heap that grows until the process is killed with no indication of which queue did it. Bounded, submission past the limit is refused with a named error, so overload is a handled outcome at the point of submission; a `whenSpace` promise is emitted alongside it for producers that would rather wait than shed.",
+          "affects": [
+            "core",
+            "example",
+            "test"
+          ]
+        },
+        {
+          "name": "failures",
+          "type": "enum",
+          "values": [
+            "promise",
+            "sink"
+          ],
+          "default": "promise",
+          "description": "Where a task's error goes. `promise` is ordinary promise behaviour \u2014 it arrives at whoever awaits what was submitted \u2014 and suits a queue whose results are collected. It has one consequence worth stating plainly: on Node an unawaited rejection terminates the process, so submitting fire-and-forget work under this setting means one failing task takes the process with it. `sink` takes a handler at construction, reports every failure to it exactly once, and marks the returned promise as handled so that discarding it is safe; that is the setting for a queue used as a background worker.",
+          "affects": [
+            "core",
+            "example",
+            "test"
+          ]
+        },
+        {
+          "name": "includeTests",
+          "type": "boolean",
+          "default": true,
+          "description": "Emit an executable test suite alongside the implementation.",
+          "affects": [
+            "files",
+            "test"
+          ]
+        }
+      ],
+      "legality": [],
+      "relatedPatterns": [
+        "semaphore",
+        "retry",
+        "circuit-breaker"
+      ],
+      "provenance": "Original implementation. Deliberately overlaps `semaphore`, which limits the same thing by a different arrangement, because the difference decides which one a caller wants: a semaphore gates work the caller has already created and started, so the memory that work occupies is the caller's problem and its order is whatever order it was created in. A queue is handed the work instead. That single change is what makes a bounded backlog, a drain signal, reordering and an error sink expressible at all, and it is why this is a separate pattern rather than an option on that one.",
+      "license": "original",
+      "tier": 1
+    },
+    {
+      "name": "debounce",
+      "title": "Debounced Call",
+      "category": "async-resilience",
+      "kind": "generative",
+      "intent": "Collapse a burst of calls into one, with the timer injected so it can be driven rather than waited for, and without starving a caller who never stops calling.",
+      "supportsSplit": false,
+      "variants": [],
+      "identifiers": [
+        {
+          "name": "entity",
+          "description": "The operation being debounced."
+        }
+      ],
+      "options": [
+        {
+          "name": "edge",
+          "type": "enum",
+          "values": [
+            "trailing",
+            "leading",
+            "both"
+          ],
+          "default": "trailing",
+          "description": "Which end of the burst invokes. `trailing` waits for quiet and is what a search-as-you-type wants: nothing happens until the typing stops. `leading` acts on the first call and drops the rest of the burst, which is what a submit button wants, since the response to a click must not wait. `both` acts immediately and again at the end if anything else arrived \u2014 and carries the defect worth generating around: a single call must invoke once, not twice, which every naive implementation of it gets wrong. Encoded as three values rather than two booleans so that \"neither edge\", which never invokes at all, cannot be asked for.",
+          "affects": [
+            "core",
+            "example",
+            "test"
+          ]
+        },
+        {
+          "name": "result",
+          "type": "enum",
+          "values": [
+            "promise",
+            "void"
+          ],
+          "default": "promise",
+          "description": "What a caller gets back. `promise` settles every caller in a burst with the outcome of the invocation their call caused, which is the answer a debounced fetch needs and the one an implementation returning the previous result cannot give. `void` returns nothing and takes a required error handler instead, because a call whose result is discarded still has a failure that has to go somewhere \u2014 and on Node an unhandled rejection ends the process. That is the same fork as `failures` on `async-queue`, for the same reason.",
+          "affects": [
+            "core",
+            "example",
+            "test"
+          ]
+        },
+        {
+          "name": "maxWait",
+          "type": "boolean",
+          "default": false,
+          "description": "Whether to enforce a ceiling on the delay. Without one, a caller who never goes quiet for a whole wait is never served at all \u2014 the failure a plain debounce has and the reason this option exists. It brings its own trap: the ceiling must not be restarted by later calls, or neither timer ever expires and the ceiling silently does nothing, and it must be re-armed from its own expiry rather than from the next call, or the interval it promises drifts by the gap between calls.",
+          "affects": [
+            "core",
+            "example",
+            "test"
+          ]
+        },
+        {
+          "name": "includeTests",
+          "type": "boolean",
+          "default": true,
+          "description": "Emit an executable test suite alongside the implementation.",
+          "affects": [
+            "files",
+            "test"
+          ]
+        }
+      ],
+      "legality": [],
+      "relatedPatterns": [
+        "async-queue",
+        "semaphore",
+        "retry"
+      ],
+      "provenance": "Original implementation. Debouncing is folklore and its best-known form is Lodash's `_.debounce`, which this deliberately does not copy in two respects. The timer is a constructor argument rather than the ambient `setTimeout`, so a test drives the clock instead of waiting on it and no global has to be patched; the port hands back a cancel function rather than a handle, which also sidesteps the handle being `number` in a browser and `Timeout` in Node. And a caller is told the outcome of the invocation their own call caused, where Lodash returns the result of the previous invocation \u2014 a value that is stale by construction and cannot be typed honestly for an asynchronous function.",
+      "license": "original",
+      "tier": 1
+    },
+    {
+      "name": "token-bucket",
+      "title": "Token Bucket Rate Limit",
+      "category": "async-resilience",
+      "kind": "generative",
+      "intent": "Allow a burst up to a capacity and a sustained rate beyond it, with the level derived from elapsed time rather than refilled by a timer.",
+      "supportsSplit": false,
+      "variants": [],
+      "identifiers": [
+        {
+          "name": "entity",
+          "description": "The operation the bucket rate-limits."
+        }
+      ],
+      "options": [
+        {
+          "name": "waiting",
+          "type": "enum",
+          "values": [
+            "refuse",
+            "wait"
+          ],
+          "default": "refuse",
+          "description": "What happens when there are not enough tokens. `refuse` reports it and returns, which is what a server deciding whether to answer with 429 needs: it must not hold the request open, and it wants the retry delay to send back. `wait` queues the caller until the tokens exist, which is what a client calling someone else's rate-limited API needs, since the work has to happen and waiting is cheaper than being rejected. The queue brings everything a queue brings \u2014 arrival order, no barging by a caller who wants less, and cancellation \u2014 so the two renderings are genuinely different artefacts rather than one with a flag.",
+          "affects": [
+            "core",
+            "example",
+            "test"
+          ]
+        },
+        {
+          "name": "keyed",
+          "type": "boolean",
+          "default": false,
+          "description": "Whether there is one bucket or one per subject. Almost every real limit is per-user, per-tenant or per-address, and the naive way to get there is a map that is never emptied \u2014 a memory leak whose growth is controlled by whoever is sending the traffic, which makes it a denial-of-service vector rather than merely untidy. Keyed emits the eviction that fixes it, and it is exact rather than approximate: a bucket refilled to capacity is indistinguishable from one that never existed, so it can be dropped without changing any answer the limiter would give.",
+          "affects": [
+            "core",
+            "example",
+            "test"
+          ]
+        },
+        {
+          "name": "includeTests",
+          "type": "boolean",
+          "default": true,
+          "description": "Emit an executable test suite alongside the implementation.",
+          "affects": [
+            "files",
+            "test"
+          ]
+        }
+      ],
+      "legality": [],
+      "relatedPatterns": [
+        "debounce",
+        "semaphore",
+        "async-queue",
+        "retry"
+      ],
+      "provenance": "Original implementation of an algorithm that is public knowledge and older than the web. The clock is injected, as in `debounce`, but with `now` alongside `delay` because this needs to read time as well as schedule against it. Two choices are worth stating because the obvious alternatives are both defensible-looking and wrong. No timer refills the bucket: the level is a function of elapsed time, computed when asked, so an idle bucket costs nothing and no tick quantises the rate. And that level is derived from a single anchor rather than accumulated \u2014 adding a delta on every read compounds a floating-point error per read, which makes a busy bucket measurably slower than its stated rate and, at a boundary, refuse a request it should grant.",
       "license": "original",
       "tier": 1
     }

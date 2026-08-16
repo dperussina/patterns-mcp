@@ -20,11 +20,30 @@ stateful servers. The v2 SDK line is the one that implements it.
 
 **Alternatives considered**: `@modelcontextprotocol/sdk` 1.30.0 — still the npm `latest` tag, which
 makes it the likely accidental choice, but it is the older monolith and does not target this revision.
-Rejected. Supporting both eras simultaneously was also rejected as unnecessary scope for a new server.
+Rejected.
+
+**Revised**: supporting both eras was originally recorded here as rejected scope, and what ships serves
+both. `serveStdio` owns the era decision and defaults to `legacy: 'serve'`, so an `initialize` request —
+or any request carrying no version claim — opens a 2025-era session from the same factory, while a request
+carrying the modern `_meta` envelope is served statelessly. That is the revision's own dual-era shape and
+it costs nothing here, because the server holds no state for either era to keep: the same three tools
+answer both. It is kept rather than switched off, since a legacy client has no fall-forward mechanism —
+if `initialize` were refused it could not discover that a modern path existed.
 
 **Consequences**: `clientInfo` is only a SHOULD, so handlers must tolerate its absence and must never
 branch on client identity. Roots, sampling, and the `logging` capability are deprecated and will not
 be adopted; diagnostics go to `stderr`.
+
+**Two constants in this SDK invite a wrong conclusion, and both did.** `LATEST_PROTOCOL_VERSION` is
+`2025-11-25` and `SUPPORTED_PROTOCOL_VERSIONS` does not contain `2026-07-28`: they enumerate the *legacy*
+revisions, and the modern one is held separately as `FIRST_MODERN_PROTOCOL_VERSION`. Read as a ceiling,
+they say the SDK cannot speak the revision — which is how a comment claiming exactly that came to sit in
+`server.ts` above a declaration that was working, and how a test came to gate the wire assertions for the
+revision's cache fields on a list that can never contain it. Separately, the SDK's *client* defaults to
+`versionNegotiation: 'legacy'`, so a contract suite that connects a client without opting in exercises the
+older protocol throughout while appearing to test the server as it is deployed. Anything asserting the
+revision has to open the era deliberately — `{ pin: '2026-07-28' }`, which fails loudly, rather than
+`'auto'`, which falls back to `initialize` and hands back a legacy session under a modern name.
 
 ---
 
@@ -169,6 +188,12 @@ request, so a caller-supplied `coreModule` is the sanctioned design rather than 
 provenance header lets a later agent discover what is already installed by reading the repository,
 making the cheap path self-service.
 
+**Amended**: the header is per-pattern except on a support file every pattern emits identically at one
+path, which is marked shared and names neither pattern nor options. Reuse across patterns is part of
+this decision and a per-pattern header defeated it: it made such a file differ per request, so two
+bundles in one directory overwrote each other instead of coinciding. Discoverability is unaffected,
+since a file shared by every pattern reveals nothing about which are installed.
+
 **Alternatives considered**: Server-side memory of what a caller has installed — forbidden by
 statelessness and impossible behind a load balancer. Always emitting everything — produces duplicate
 machinery and, for larger patterns, risks the response budget. Embedding our generator version in the
@@ -254,6 +279,15 @@ under different options, the regenerated stub differs and the binding fails to t
 precisely the "caller points at machinery that does not match what the pattern expects" case the spec
 requires be refused with an explanation rather than answered with uncompilable code.
 
+That check has a cheaper counterpart the caller can run first, and for a while it did not work. The
+machinery's provenance marker is meant to say which options it was generated under, so an agent can compare
+an installed core against what a new binding needs without a compile. The marker hashed the whole request,
+including the entity — so two cores generated under identical options disagreed whenever the entities
+differed, and the comparison reported a mismatch that was not there. Worse, it made the machinery's bytes
+vary per request, so a project's second repository rewrote the first's core with an identical file under a
+different header. The marker now covers only what can shape the machinery (FR-050), which is what makes
+both the cheap comparison and side-by-side installation work.
+
 **Alternatives considered**: Typechecking the binding with the core import declared as `any` — rejected
 because it verifies nothing about the seam that is most likely to be wrong. Requiring the caller to
 paste their existing core module into the request — rejected as a large token cost for information we
@@ -263,6 +297,17 @@ reuse path is the one we most want callers to trust.
 
 **Consequences**: The core must be renderable without being emitted, so rendering and emission are
 separate steps in the pipeline. `contentHash` covers emitted files only, never the discarded stub.
+
+Placing the stub at the specifier's own resolution also decides where the *bundle* has to sit. Written at
+the sandbox root, a specifier that climbs — `../lib/core.js`, which is what a binding in `src/orders`
+writes to reach a core in `src/lib` — resolves above the root, where nothing may be written and the
+compiler would find nothing to read. That was refused for a time, which quietly excluded the commonest
+real layout: the split exists for a project that keeps machinery in one place and bindings in another, and
+those are different directories. The bundle is therefore placed as many levels down as the specifier
+climbs, so the climb resolves inside the root and needs no special case; the depth is bounded, since a
+specifier climbing further than a few levels has left the project rather than described it. Placement is a
+verification device and never reaches the caller: the emitted binding carries the specifier they gave,
+which is the same invariant this section already rests on — the bytes verified are the bytes returned.
 
 ---
 

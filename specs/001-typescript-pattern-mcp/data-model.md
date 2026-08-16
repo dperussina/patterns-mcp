@@ -22,6 +22,7 @@ A named, categorized capability. Catalog data, stored in `data/patterns/{categor
 | `intent` | `string` | One sentence, ≤ 200 chars. What problem it solves. |
 | `supportsSplit` | `boolean` | Whether it separates shared machinery from per-type bindings (FR-019). |
 | `variants` | `string[]` | Named variants, empty if none. Each matches the identifier rule. |
+| `identifiers` | `IdentifierRole[]` | The identifier roles this pattern generates around, empty if none. Names must be unique. Each is optional to supply; a role the pattern does not declare is refused. |
 | `options` | `Option[]` | Pattern-specific options, in declared order. |
 | `legality` | `LegalityRule[]` | Cross-option constraints (FR-008). |
 | `advisory` | `Advisory?` | Required when `kind` is `advisory`, forbidden otherwise. |
@@ -148,7 +149,112 @@ additions to it are treated as output-affecting changes requiring a reviewable s
 
 Unknown irregulars are not guessed. A caller identifier that the default rule cannot pluralize
 confidently — and which has no exception entry — is refused with the rule stated, per Principle V,
-rather than being approximated.
+rather than being approximated. The refusal must reach the caller: dropping it and using a generic
+name instead is the failure this is meant to prevent, wearing a different hat.
+
+**A doubtful ending has to be doubtful in English, not merely in Latin.** The rule for `-on` was
+written for `criterion` and `phenomenon` and matched every `-ion` noun, which refused `Subscription`,
+`Transaction`, `Session`, `Notification`, `Permission`, `Version`, `Connection`, `Collection`,
+`Region`, `Option`, `Action`, `Question` and `Division` — a seventh of a realistic domain vocabulary,
+and none of them genuinely ambiguous. `-ion` is now excluded from the doubt, which costs nothing:
+the words the rule was aimed at are all exception-table entries, and the table is consulted first.
+
+**A confident wrong answer is worse than a refusal, and the invariant list is where they came from.**
+Words whose plural equals their singular have no rule to find them, only a list, and that list held
+seven entries against a class with scores. So `Aircraft` became `Aircrafts` — the one that prompted the
+audit — and so did every other candidate tried: `Corps`/`Corpses`, `Middleware`/`Middlewares`,
+`Analytics`/`Analyticses`, `Headquarters`/`Headquarterses`. None was refused, because the default rule
+is confident about a `-t` or an `-s` ending and has no way to know the word is a collective. The list is
+now forty-nine entries covering the groups a software domain reaches for: the `-ware` compounds, the
+`-craft` compounds, the `-ics` field names, the singular collectives ending in `-s`, and the mass nouns.
+
+It still cannot be complete, and it is deliberately not exhaustive: `Bandwidth` pluralises legitimately,
+and `Feedback` is split by usage, so both are left to the default rule.
+
+**A bare `-s` is now a doubt, which the same audit had rejected on a false premise.** The earlier
+reasoning was that widening `-s` would refuse `Address`, `Class`, `Process` and `Status`; three of those
+end in a double `s`, about which nothing is doubtful, and the fourth is `-us` and already belongs to the
+Latin rule. What the ending actually cannot distinguish is a singular from a plural, and the case that
+matters is not a collective but a caller writing what they mean: `Orders` is among the likeliest things
+anyone hands a repository, and it produced `orderses` — used as the collection name, so the invented
+word would have reached a schema and not merely a type. `-ss` is exempt, `-us` and `-is` keep the Latin
+rule's better explanation, and the genuine singulars left over — `alias`, `lens`, `canvas`, `gas`,
+`bias`, `atlas` — are exception-table entries like every other word with one right answer.
+
+**Where English has a rule, the fix is the rule and not a refusal.** `Quiz` was answered `Quizes`,
+because the `-s`/`-x`/`-z` clause appends `-es` without noticing that a single `z` after a vowel
+doubles. That is not a doubt to be refused but a missing case, now handled: `Quizzes`, while `Waltz` and
+`Buzz` — a consonant and a second `z` in that position — are untouched.
+
+Where an ending is *both*, it belongs in the doubt rather than either table. `-ics` names a field, which
+is invariant, and is also how an `-ic` noun pluralises, so `Mechanics` and `Graphics` are one word doing
+two jobs while `Topics` and `Metrics` are only plurals. Refusing tells a caller who sent a plural by
+mistake what they did; the previous answer was `Topicses`.
+
+**Every casing comes from the words, and never from a character.** The forms above are derived by
+splitting the name on case boundaries, which is what keeps `HTTPServer` from becoming `h-t-t-p-server`.
+Two templates cased names themselves instead and were wrong in the two ways available: lowercasing the
+whole subject ran the words together, so `WebhookEvent` produced the exported `webhookeventId`, and
+lowercasing the first character alone mangles an acronym, so `APIKey` produced a factory named
+`aPIKeyId`. Both compiled and both passed the generated tests. Neither is reachable with `Order`, where
+every casing coincides, which is why the value form is now derived here rather than at a call site, and
+why a spaced form exists for the prose that reaches test titles and error messages.
+
+**Appending a pattern's own noun collapses the overlap wherever the two names meet.** The rule that
+turned `OrderId` + `Id` into `OrderId` rather than `OrderIdId` compared the noun against the whole tail,
+so it missed every partial overlap: `Event` — the likeliest subject for an emitter — gave `EventEvents`
+and `EventEventName`. The longest overlap now wins, and a noun matching the name's plural counts as the
+same word, with the plural's spelling surviving because that is the form the call site asked for. The
+entity's spelling wins everywhere else, so a caller who writes `OrderID` keeps their acronym. One
+pattern is deliberately excluded: `typestate` names a class after the subject and a union after its
+states, and collapsing a `State` subject made the two collide, so it keeps `StateState` — which
+compiles, where the tidier name did not.
+
+**A file stem keeps its pattern's noun even when a type name loses it.** The collapse above is right for
+a type — a caller asking for `OrderId` wants `OrderId`, not `OrderIdId` — but a stem has a second job a
+type name does not: distinguishing one pattern's output from another's in a directory holding both. So
+the collapse makes stems converge, and a stem that was already the bare subject converges with all of
+them. `typestate` was that stem, and it collided with `branded-type` at `order-id.ts`, `repository` at
+`order-repository.ts`, `typed-emitter` at `order-emitter.ts`, `result` at `result.ts` and
+`discriminated-union` at `event.ts` — five pairs, all of them the FR-020 failure reached through the
+caller's noun instead of a shared file, and none of them visible under `Order`, which is nobody's noun.
+Every stem now carries its pattern's noun, so `typestate` writes `order-state.ts` rather than `order.ts`;
+the second reading of that rename is that the service no longer claims the caller's own file name.
+
+**A name of ours can be in the caller's way, and whose name it is decides the answer (FR-052).** A
+template writes some names whatever it is asked for, and the collapse above makes others equal to the
+name they were derived from, so a module can end up declaring one name twice. Feeding every pattern its
+own written names, and the nouns it appends, produced a bundle that failed its own compiler in seven of
+them — including for `Customer`, `Store` and `AuditRecord`, which are the sort of thing anyone would
+send. The distinction is what the colliding name belongs to:
+
+- **An example or a suite**: ours to name, so the stand-in steps aside — `SampleStore` beside the core's
+  `Store` — and the file says why in a sentence, because a name silently different from the one that was
+  asked for is its own small betrayal. `standIn` is a single helper rather than a habit at each call
+  site, since the mistake it prevents was made independently in two patterns.
+- **Something the caller builds against**: not ours to rename, so the request is refused as a collision.
+  `unit-of-work` exports the binding's record type; an entity of `NewRecord` derives that exact name from
+  the core's, and only the caller can resolve it.
+
+**A collision is between derived names, not between spellings.** The refusal compared the string the
+caller sent, so `repository` was accepted where `Repository` was refused — the same request in the casing
+someone would more likely type, derived back to `Repository` at the declaration site and reported as our
+defect. Six of the thirteen refused names had such a spelling. Both sides are now compared as their
+Pascal forms, which is why the word-splitting and the casings sit in `casing.ts` below both the deriver
+and the validator: a second splitter written in the validator to avoid the import is exactly the drift
+that would let the two disagree again. `REPOSITORY` stays an acronym through the derivation, so it stays
+a different name and is not refused for looking like one.
+
+The names in the second group are declared by the pattern that writes them, next to the template rather
+than in the catalog, because a list kept anywhere else drifts the first time a template gains a helper.
+`describe_pattern` reads them from there and states them, so a caller learns a name is taken before
+spending a turn on it — the same reasoning that makes legality rules data a caller can read rather than
+behaviour they discover. That is what moved the module list into `patterns/registry.ts`: a description of
+the catalogue reaching through the generation pipeline to read a declaration would put the two the wrong
+way round.
+The conformance sweep reads the real names out of a rendered bundle, so a drifted list is reported rather
+than discovered by whoever asks for the name first — and it checks the reverse too, since a name refused
+but no longer written is a request the service could serve and declines to.
 
 ---
 
@@ -170,9 +276,20 @@ The validated pattern plus a complete option set, including defaults. Uniquely d
 1. Pattern exists and is `generative`; if `advisory`, short-circuit to an Advisory response.
 2. Unknown option names rejected.
 3. Each option value validated against its declared type and value space.
-4. Identifiers validated against the strict pattern and reserved-word denylist; strings length-capped.
-5. Defaults applied to unspecified options.
-6. Legality rules evaluated in declared order.
+4. Identifier *roles* checked against the pattern's `identifiers`; an undeclared role is rejected.
+5. Identifier *values* validated against the strict pattern and reserved-word denylist; length-capped.
+6. Defaults applied to unspecified options.
+7. Legality rules evaluated in declared order.
+
+Steps 4 and 5 are separate and ordered, for the same reason 2 precedes 3: a caller told their role is
+wrong has no use for a complaint about the string they gave it. Step 4 is an amendment — an undeclared
+role used to be accepted and ignored, which is the more expensive half of the mistake, since it still
+entered `optionsHash` and so returned byte-different headers over a name no generated file used.
+
+Plural derivation happens after this, during rendering, and can also refuse (see `NameTransform`). Its
+refusal reaches the caller rather than being absorbed: a name whose plural cannot be derived was
+previously dropped and the pattern fell back to generic names, so a request for a `Staff` repository
+returned an `EntityRepository` with nothing said.
 
 ---
 
@@ -201,7 +318,27 @@ The multi-file result. Returned as `structuredContent`; also rendered human-read
 | `path` | `string` | Derived from validated inputs only; never caller-supplied (FR-033). Relative, forward slashes, no `..`. |
 | `contents` | `string` | Formatted output. |
 | `role` | enum | `core`, `binding`, `adapter`, `test`, `example`, `types`. Drives ordering and `emitScope` filtering. `example` satisfies FR-004 and US1 acceptance scenario 1, which require a usage example in the bundle. |
-| `provenance` | `string` | Header comment: pattern name and `optionsHash` (FR-020, FR-021). |
+| `provenance` | `string` | Header comment: pattern name and `optionsHash` (FR-020, FR-021, FR-050). |
+
+**What a file's marker identifies (FR-050).** Not the request, but the inputs that can shape *that file*.
+Three attributions, and the two beyond the ordinary one exist for one reason: a path two requests both
+emit must carry identical bytes, or the second request rewrites the first caller's file.
+
+A **shared support file** names nothing, per FR-020.
+
+The **machinery of a pattern that splits** — the `core` and `types` roles of a pattern offering
+`emitScope` — is attributed without the caller's identifiers, because that half is by construction the one
+that does not know the caller's type. That is what lets a second entity's request reuse it. Keying this on
+the role alone would be wrong: nearly every pattern calls its principal module `core`, and for the
+twenty-three that do not split, that module *is* the caller's type written out, so dropping the identifiers
+there would claim two different files came from one request.
+
+**Every** file's marker omits `includeTests`, which decides whether a suite exists rather than what any
+file says. A suite that exists was asked for, and one that does not cannot be described; including it meant
+a caller who regenerated without tests found every file they kept re-attributed, identical code under a new
+hash. `emitScope` and `coreModule` are omitted from the machinery's marker only — a `core-only` example
+declares a sample binding inline and a binding embeds the specifier verbatim, so both can reach those
+files' text.
 
 ---
 

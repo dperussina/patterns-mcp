@@ -7,86 +7,22 @@
  * way from its cause. So these tests assert stdout purity as directly as they can, and assert that
  * writes which would have gone there are diverted to stderr instead.
  *
- * Real frames over injected streams rather than a spawned process: the SDK's transport takes its
- * streams as constructor arguments, so the wire format, the framing, and the handshake are all
- * genuinely exercised without a build step standing between the test and the code.
+ * Real frames over injected streams rather than a spawned process, through the harness in `frames.ts`:
+ * the SDK's transport takes its streams as constructor arguments, so the wire format, the framing, and
+ * the handshake are all genuinely exercised without a build step standing between the test and the code.
  */
 
-import { PassThrough } from "node:stream";
-
 import { LATEST_PROTOCOL_VERSION } from "@modelcontextprotocol/server";
-import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { stderrLog } from "../../src/mcp/log.js";
-import { serveStdioOn } from "../../src/mcp/transports/stdio.js";
+import { SERVER_NAME, SERVER_TITLE, VERSION } from "../../src/version.js";
+import { frames } from "./frames.js";
+import type { Frames } from "./frames.js";
 
-interface Harness {
-  send(message: Record<string, unknown>): void;
-  /** Resolves with the response bearing `id`, or rejects if the stream closes first. */
-  response(id: number): Promise<Record<string, unknown>>;
-  /** Every line stdout has emitted so far, blank lines dropped. */
-  lines(): readonly string[];
-  logged: string[];
-  close(): Promise<void>;
-}
-
-function harness(): Harness {
-  const stdin = new PassThrough();
-  const stdout = new PassThrough();
-  const logged: string[] = [];
-
-  const handle = serveStdioOn({
-    transport: new StdioServerTransport(stdin, stdout),
-    log: (line) => logged.push(line),
-  });
-
-  let buffered = "";
-  const lines: string[] = [];
-  const waiting = new Map<number, (message: Record<string, unknown>) => void>();
-
-  stdout.on("data", (chunk: Buffer) => {
-    buffered += chunk.toString("utf8");
-    const parts = buffered.split("\n");
-    buffered = parts.pop() ?? "";
-    for (const part of parts) {
-      if (part.trim() === "") continue;
-      lines.push(part);
-      const parsed = JSON.parse(part) as Record<string, unknown>;
-      const id = typeof parsed.id === "number" ? parsed.id : undefined;
-      if (id !== undefined) waiting.get(id)?.(parsed);
-    }
-  });
-
-  return {
-    send(message) {
-      stdin.write(`${JSON.stringify(message)}\n`);
-    },
-    async response(id) {
-      return await new Promise((resolve, reject) => {
-        const found = lines
-          .map((line) => JSON.parse(line) as Record<string, unknown>)
-          .find((message) => message.id === id);
-        if (found !== undefined) {
-          resolve(found);
-          return;
-        }
-        waiting.set(id, resolve);
-        setTimeout(() => {
-          reject(new Error(`no response to request ${String(id)} within 10s`));
-        }, 10_000);
-      });
-    },
-    lines: () => lines,
-    logged,
-    async close() {
-      await handle.close();
-    },
-  };
-}
-
-async function initialized(): Promise<Harness> {
-  const session = harness();
+/** The 2025-era opening, which is what this suite is about; `revision.test.ts` covers the modern one. */
+async function initialized(): Promise<Frames> {
+  const session = frames();
   session.send({
     jsonrpc: "2.0",
     id: 1,
@@ -102,7 +38,7 @@ async function initialized(): Promise<Harness> {
   return session;
 }
 
-let open: Harness | undefined;
+let open: Frames | undefined;
 
 afterEach(async () => {
   await open?.close();
@@ -111,7 +47,7 @@ afterEach(async () => {
 
 describe("serving over stdio", () => {
   it("completes the handshake and names the server", async () => {
-    open = harness();
+    open = frames();
     open.send({
       jsonrpc: "2.0",
       id: 1,
@@ -124,8 +60,14 @@ describe("serving over stdio", () => {
     });
 
     const response = await open.response(1);
-    const result = response.result as { serverInfo?: { name?: string } };
-    expect(result.serverInfo?.name).toBe("patterns");
+    const result = response.result as {
+      serverInfo?: { name?: string; title?: string; version?: string };
+    };
+    // The registry name, not a display name: `name` identifies and `title` is what a person reads, so a
+    // client can show "Patterns" while still being able to match the server to its registry entry.
+    expect(result.serverInfo?.name).toBe(SERVER_NAME);
+    expect(result.serverInfo?.title).toBe(SERVER_TITLE);
+    expect(result.serverInfo?.version).toBe(VERSION);
   });
 
   it("offers the same tools it offers in process", async () => {
@@ -149,6 +91,65 @@ describe("serving over stdio", () => {
     }
     expect(open.lines().length).toBeGreaterThan(0);
   });
+
+  /**
+   * The same property across a session that does the work, rather than one that only lists.
+   *
+   * Listing is the cheap path and it exercises none of the machinery that writes: generation runs a
+   * compiler in a subprocess, executes the emitted tests, and formats every file. Any of those could put
+   * a warning on the process's stdout, and a refusal is the path where our own diagnostics are written.
+   * A session that stops at `tools/list` would not notice.
+   *
+   * `smoke-packaged.ts` makes the same assertion against the built binary in a spawned process, which is
+   * the only place a subprocess inheriting the real file descriptor could be caught. This one covers the
+   * sequence — discovery, generation, refusal — and catches it a great deal earlier.
+   */
+  it("keeps stdout clean across a session that generates and refuses", async () => {
+    open = await initialized();
+
+    open.send({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} });
+    await open.response(2);
+
+    open.send({
+      jsonrpc: "2.0",
+      id: 3,
+      method: "tools/call",
+      params: { name: "describe_pattern", arguments: { pattern: "result" } },
+    });
+    await open.response(3);
+
+    open.send({
+      jsonrpc: "2.0",
+      id: 4,
+      method: "tools/call",
+      params: {
+        name: "generate_pattern",
+        arguments: { pattern: "result", identifiers: { entity: "Order" } },
+      },
+    });
+    const generated = await open.response(4);
+    expect((generated.result as { isError?: boolean }).isError, "generation failed, so this proves little")
+      .not.toBe(true);
+
+    open.send({
+      jsonrpc: "2.0",
+      id: 5,
+      method: "tools/call",
+      params: { name: "generate_pattern", arguments: { pattern: "no-such-pattern" } },
+    });
+    const refused = await open.response(5);
+    expect((refused.result as { isError?: boolean }).isError, "the refusal path was not taken").toBe(true);
+
+    open.send({ jsonrpc: "2.0", id: 6, method: "resources/read", params: { uri: "pattern://catalog" } });
+    await open.response(6);
+
+    const parsed = open.lines().map((line) => JSON.parse(line) as Record<string, unknown>);
+    expect(parsed.every((message) => message.jsonrpc === "2.0")).toBe(true);
+    // Every request answered, so nothing was lost to a desynchronised stream rather than kept clean.
+    expect(parsed.map((message) => message.id).filter((id) => id !== undefined).toSorted()).toEqual([
+      1, 2, 3, 4, 5, 6,
+    ]);
+  }, 120_000);
 });
 
 describe("diagnostics", () => {

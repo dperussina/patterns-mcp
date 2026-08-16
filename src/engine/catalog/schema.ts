@@ -38,6 +38,7 @@ export const CATEGORIES = [
   "creational",
   "structural",
   "behavioral",
+  "llm-orchestration",
 ] as const;
 
 const patternName = z
@@ -147,6 +148,25 @@ export const OptionSchema = z.discriminatedUnion("type", [
 ]);
 
 /**
+ * A name the caller supplies for the pattern to generate around.
+ *
+ * Declared here, in data, for the same reason options are: `describe_pattern` is the one call that
+ * tells an agent how to make the next one, and an input it cannot describe is an input a caller has
+ * to guess. Guessing was the actual failure — an identifier the pattern never reads used to be
+ * accepted in silence, so a caller who asked for `Triage` received generic names and nothing said
+ * so.
+ *
+ * Roles rather than a free record. `entity` means the same thing to every pattern that takes it,
+ * which is what lets one agent habit work across the catalog, and a pattern that reads no
+ * identifier declares none instead of quietly ignoring whatever arrives.
+ */
+export const IdentifierRoleSchema = z.strictObject({
+  name: optionName,
+  /** What the pattern names after it. Read by a caller deciding what to pass. */
+  description: z.string().min(1),
+});
+
+/**
  * A serialisable predicate over resolved options. Deliberately data rather than
  * a function, so `describe_pattern` can show a caller the rule that will be
  * applied to them before they call (FR-013).
@@ -192,6 +212,28 @@ export const AdvisoryContentSchema = z.strictObject({
   alternative: z.string().min(1),
   rationale: z.string().min(1),
   example: z.string().min(1).optional(),
+});
+
+/**
+ * Declared by a pattern whose emitted code can reach the network (FR-034).
+ *
+ * Present on two entries and absent from the rest, which is the point: the requirement used to ban
+ * network access outright, and read literally it outlawed the two patterns whose whole subject is putting
+ * a typed, testable edge around an HTTP call. The ban was really about calling out *without the caller
+ * knowing*, so the obligation became disclosure plus injectability, and this is where the disclosure
+ * lives — a caller reading `describe_pattern` learns it before generating, not after.
+ *
+ * `boundary` names the parameter to pass a stub to, because "it is injectable" is only useful alongside
+ * what to inject. `defaultHost` is the endpoint used when the caller overrides nothing, and is absent
+ * when there is none — a gateway is told its base URL, while a provider adapter knows its provider's.
+ *
+ * Verified rather than trusted: `test/conformance/network.test.ts` generates every pattern and fails if
+ * one names a network primitive without declaring this, or declares it without naming one.
+ */
+export const NetworkAccessSchema = z.strictObject({
+  boundary: z.string().min(1),
+  reason: z.string().min(1),
+  defaultHost: z.string().min(1).optional(),
 });
 
 const commonPatternFields = {
@@ -259,8 +301,10 @@ export const PatternSchema = z.discriminatedUnion("kind", [
       kind: z.literal("generative"),
       supportsSplit: z.boolean(),
       variants: z.array(patternName),
+      identifiers: z.array(IdentifierRoleSchema),
       options: z.array(OptionSchema),
       legality: z.array(LegalityRuleSchema),
+      network: NetworkAccessSchema.optional(),
     })
     .refine((p) => !p.relatedPatterns.includes(p.name), {
       message: "a pattern may not relate to itself",
@@ -316,6 +360,15 @@ export const PatternSchema = z.discriminatedUnion("kind", [
       path: ["options"],
     })
     /**
+     * Identifiers arrive as a record, so a role declared twice cannot be supplied twice — the second
+     * declaration is unreachable, and a reader of the description would be told about an input that
+     * does not exist separately.
+     */
+    .refine((p) => new Set(p.identifiers.map((role) => role.name)).size === p.identifiers.length, {
+      message: "identifier roles must be unique",
+      path: ["identifiers"],
+    })
+    /**
      * `verbosity` selects how much of an unchanged bundle is rendered back (FR-028), so it belongs to
      * the response and not to the code. As a pattern option it would enter the resolved set and
      * therefore the provenance hash, and the byte-identical bundle would hash differently according
@@ -363,11 +416,13 @@ export const CatalogShardSchema = z.strictObject({
 
 export type Category = z.infer<typeof CategorySchema>;
 export type Option = z.infer<typeof OptionSchema>;
+export type IdentifierRole = z.infer<typeof IdentifierRoleSchema>;
 export type PatternKind = z.infer<typeof PatternKindSchema>;
 export type Tier = z.infer<typeof TierSchema>;
 export type WhenClause = z.infer<typeof WhenClauseSchema>;
 export type LegalityRule = z.infer<typeof LegalityRuleSchema>;
 export type AdvisoryContent = z.infer<typeof AdvisoryContentSchema>;
+export type NetworkAccess = z.infer<typeof NetworkAccessSchema>;
 export type Pattern = z.infer<typeof PatternSchema>;
 export type GenerativePattern = Extract<Pattern, { kind: "generative" }>;
 export type AdvisoryPattern = Extract<Pattern, { kind: "advisory" }>;
