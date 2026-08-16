@@ -48,33 +48,11 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      # Temporary, and here to answer one question with evidence rather than a third guess. Both Ubuntu
-      # jobs die part-way through the suite with "the runner has received a shutdown signal" and no failing
-      # assertion — the machine stops. Capping the worker pool did not change it, so the reading that it
-      # was pool-driven contention was wrong.
-      #
-      # The sampler runs inside this step rather than a step of its own, because a step that reports
-      # afterwards never runs: if the VM goes away, so does the summary. Live logs stream, so samples
-      # written here are readable up to the last one before the shutdown, which is the only part that
-      # matters. Remove once the cause is known.
-      - name: run the gate, sampling what the machine is doing
-        run: |
-          set -uo pipefail
-          if [ "$RUNNER_OS" = "Linux" ]; then
-            (
-              while :; do
-                echo "SAMPLE $(date +%T) $(free -m | awk '/^Mem:/{printf "used=%sM avail=%sM", $3, $7}')"
-                # Which processes hold it. Memory exhaustion is established; this is the part that says
-                # what to fix, and a total cannot.
-                ps -eo rss=,comm= --sort=-rss | head -6 |
-                  awk '{printf "  HOLDS %6.0fM %s\n", $1/1024, $2}'
-                sleep 10
-              done
-            ) &
-            sampler=$!
-            trap 'kill "$sampler" 2>/dev/null || true' EXIT
-          fi
-          pnpm check
+      # The gate itself. Ubuntu used to die here with "the runner has received a shutdown signal" and no
+      # failing assertion — the machine stopped rather than a test failing — which was the compiler
+      # retaining every file tree it had been shown. A sampler in this step named the process holding the
+      # memory, and `scripts/measure-retention.ts` reproduces it locally in seconds if it ever returns.
+      - run: pnpm check
 
   # The floor itself, on a runtime that actually lacks the flag. The unit tests can only assert the
   # version arithmetic; this asserts the behaviour, because the failure it prevents was invisible —
