@@ -63,9 +63,11 @@ jobs:
           if [ "$RUNNER_OS" = "Linux" ]; then
             (
               while :; do
-                echo "SAMPLE $(date +%T) $(free -m | awk '/^Mem:/{printf "mem_used=%sM mem_avail=%sM", $3, $7}') \
-          $(df -m / /tmp 2>/dev/null | awk 'NR>1{printf "disk_%s_avail=%sM ", $NF, $4}') \
-          procs=$(ps -e --no-headers | wc -l) tsgo=$(pgrep -c -f tsgo || true) node=$(pgrep -c node || true)"
+                echo "SAMPLE $(date +%T) $(free -m | awk '/^Mem:/{printf "used=%sM avail=%sM", $3, $7}')"
+                # Which processes hold it. Memory exhaustion is established; this is the part that says
+                # what to fix, and a total cannot.
+                ps -eo rss=,comm= --sort=-rss | head -6 |
+                  awk '{printf "  HOLDS %6.0fM %s\n", $1/1024, $2}'
                 sleep 10
               done
             ) &
