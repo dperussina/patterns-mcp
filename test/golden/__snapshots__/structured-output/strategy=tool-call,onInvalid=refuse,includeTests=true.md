@@ -820,6 +820,10 @@ function textAnswer(
   };
 }
 
+// Only where a tool call is how the object arrives. `textAnswer` above is read
+// by both strategies — the retry cases send back a wrong *text* answer
+// whichever way the right one comes — but nothing under the response-format
+// strategy has a call to script.
 function callAnswer(input: unknown, toolName = "emitOrder"): ModelAnswer {
   return {
     content: [{ type: "tool-call", callId: "call-1", toolName, input }],

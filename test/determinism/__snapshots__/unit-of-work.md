@@ -11,7 +11,7 @@ order-collection.test.ts: ~ describe("one transaction, or none of it")
 order-collection.test.ts: ~ describe("what a change is")
 order-collection.test.ts: ~ describe("what it refuses")
 order-collection.test.ts: ~ function change
-order-collection.test.ts: ~ function statusOf
+order-collection.test.ts: - function statusOf
 order-collection.test.ts: ~ function totalOf
 order-collection.test.ts: ~ import "./unit-of-work-core.js"
 unit-of-work-core.ts: - class RemovedRecordError
@@ -31,9 +31,11 @@ unit-of-work-core.ts: + type Draft
 roles: binding, core, example, test
 order-collection-example.ts: ~ function demonstrate
 order-collection-example.ts: - function refusesASuppliedVersion
+order-collection-example.ts: ~ import "./order-collection.js"#2
 order-collection-example.ts: ~ interface Order
 order-collection.test.ts: ~ describe("one transaction, or none of it")
 order-collection.test.ts: ~ function seeded
+order-collection.test.ts: ~ import "./order-collection.js"
 order-collection.test.ts: ~ import "./unit-of-work-core.js"
 order-collection.ts: ~ import "./unit-of-work-core.js"
 order-collection.ts: ~ interface OrderRecord

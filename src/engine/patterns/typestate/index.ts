@@ -435,7 +435,12 @@ function example(context: RenderContext, shape: Shape): string {
       })
     : importsFrom(conventions, siblingSpecifier(conventions, n.stem), {
         values: ["add", "count", draft.verb, paid.verb, "refund", submitted.verb],
-        types: [n.anyType, draft.type, paid.type, submitted.type],
+        // Two of the four state types, because this file annotates almost nothing: every state below is
+        // whatever the transition that produced it returns, which is the property being demonstrated. The
+        // exception is the cross-state assignment among the refusals, where naming the target type is the
+        // whole point of the case. All four were imported, and the two nobody writes were an import a
+        // caller has to delete.
+        types: [n.anyType, submitted.type],
       });
 
   return sections(
@@ -696,7 +701,9 @@ function typeTests(context: RenderContext, shape: Shape): string {
         types: [n.anyType],
       })
     : importsFrom(conventions, siblingSpecifier(conventions, n.stem), {
-        values: [draft.verb, paid.verb, submitted.verb],
+        // The two transitions whose return type is asserted. The first transition is named nowhere here:
+        // what it returns is the *starting* state, and there is no earlier one to claim it arrives from.
+        values: [paid.verb, submitted.verb],
         types: [n.anyType, draft.type, paid.type, submitted.type],
       });
 

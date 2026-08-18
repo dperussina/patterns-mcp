@@ -34,6 +34,11 @@ export const META_PREFIX = "com.perussina.patterns/";
  *
  * The text of a refusal is written for a reader; this is the same fact in a form a caller can branch on
  * without matching prose that is free to be reworded.
+ *
+ * Two values are this adapter's own rather than the engine's: `internal_error`, for a failure nothing
+ * classified, and `response_too_large`, for a bundle that cannot cross this transport whole. Neither can
+ * be an `ErrorCode`, because the engine cannot raise them — the first is the absence of a classification
+ * and the second is a fact about a protocol the engine does not know it is behind.
  */
 export const ERROR_CODE_META_KEY = `${META_PREFIX}errorCode`;
 

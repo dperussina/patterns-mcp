@@ -1307,6 +1307,11 @@ function refusalFrom(run: () => void): unknown {
  *
  * The rest of the suite is identical in both renderings, which is the point:
  * how a change is expressed is an option, what a change *means* is not.
+ *
+ * Reading the status is the one adapter the snapshot rendering does not need.
+ * Only the merging case asks for it — a patch is a thing the explicit rendering
+ * has and the snapshot one does not — and an adapter no case calls is dead
+ * however symmetrical it looks.
  */
 function change(
   order: Tracked<Order, "id">,

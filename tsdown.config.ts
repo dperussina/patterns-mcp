@@ -1,7 +1,12 @@
 import { defineConfig } from "tsdown";
 
 export default defineConfig({
-  entry: ["src/index.ts", "src/mcp/transports/stdio-bin.ts", "src/cli/bin.ts"],
+  entry: [
+    "src/index.ts",
+    "src/mcp/transports/stdio-bin.ts",
+    "src/mcp/transports/http-bin.ts",
+    "src/cli/bin.ts",
+  ],
   // ESM only, which is a narrower promise than the default and a deliberate one. A second format was
   // being emitted because tsdown emits two by default, not because anything asked for it: both binaries
   // are `.mjs`, and no test in the repository had ever loaded the CommonJS copy. Publishing 2.9 MB that

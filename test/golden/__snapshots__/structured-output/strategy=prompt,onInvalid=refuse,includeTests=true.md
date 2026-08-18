@@ -907,15 +907,6 @@ function textAnswer(
   };
 }
 
-function callAnswer(input: unknown, toolName = "emitOrder"): ModelAnswer {
-  return {
-    content: [{ type: "tool-call", callId: "call-1", toolName, input }],
-    finishReason: "tool-calls",
-    usage: USAGE,
-    warnings: [],
-  };
-}
-
 /**
  * A model that answers from a list, and keeps every request it was given.
  *

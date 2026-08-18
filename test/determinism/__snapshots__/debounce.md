@@ -6,6 +6,7 @@ roles: core, test
 order-debounce.test.ts: ~ describe("debounceOrder controls")
 order-debounce.test.ts: ~ describe("debounceOrder results")
 order-debounce.test.ts: ~ describe("debounceOrder")
+order-debounce.test.ts: ~ import "./order-debounce.js"
 order-debounce.ts: ~ function debounceOrder
 
 ## edge=both

@@ -197,12 +197,7 @@ export function refund(order: OrderPaid): string {
  */
 
 import { add, count, draft, pay, refund, submit } from "./order-state.js";
-import type {
-  AnyOrder,
-  OrderDraft,
-  OrderPaid,
-  OrderSubmitted,
-} from "./order-state.js";
+import type { AnyOrder, OrderSubmitted } from "./order-state.js";
 
 /**
  * The whole workflow, in the order it has to happen.
@@ -334,7 +329,7 @@ export function refusesCrossStateAssignment(): void {
  * things to two different callers.
  */
 
-import { draft, pay, submit } from "./order-state.js";
+import { pay, submit } from "./order-state.js";
 import type {
   AnyOrder,
   OrderDraft,

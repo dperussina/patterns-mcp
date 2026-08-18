@@ -24,6 +24,7 @@ import { describe, expect, it } from "vitest";
 import { loadCatalog } from "../../src/engine/catalog/load.js";
 import { CorrectableError, VerificationError } from "../../src/engine/errors.js";
 import { MODULES } from "../../src/engine/generate/index.js";
+import { branchesOf } from "../branches.js";
 import { generateBundle } from "../bundle.js";
 
 import type { GenerativePattern } from "../../src/engine/catalog/schema.js";
@@ -65,30 +66,14 @@ async function bundleOf(
   return bundle.files.map((file) => ({ path: file.path, contents: file.contents }));
 }
 
-/**
- * The defaults, and one render per non-default option value.
- *
- * A single render was the first version of this guard, and it missed two names: `specification` writes
- * `RefinedBy` only under `composition=free`, and `unit-of-work` throws `KeyChangedError` only under
- * `tracking=snapshot`. A name a branch writes is written just as literally as one the defaults write, so
- * a candidate list drawn from the defaults alone is a list of the names that happened to be in view.
+/*
+ * The sweep is `branchesOf` in `test/branches.ts`, shared with the other two suites that read what a
+ * pattern emitted. A single render was the first version of this guard, and it missed two names:
+ * `specification` writes `RefinedBy` only under `composition=free`, and `unit-of-work` throws
+ * `KeyChangedError` only under `tracking=snapshot`. A name a branch writes is written just as literally as
+ * one the defaults write, so a candidate list drawn from the defaults alone is a list of the names that
+ * happened to be in view.
  */
-function branchesOf(pattern: GenerativePattern): readonly { readonly label: string; readonly options: Options }[] {
-  const branches: { label: string; options: Options }[] = [{ label: "defaults", options: {} }];
-
-  for (const option of pattern.options) {
-    if (option.name === "includeTests") continue;
-    // A free-form string option has no values to enumerate, so only these two open a branch.
-    const values: readonly (string | number | boolean)[] =
-      option.type === "enum" ? option.values : option.type === "boolean" ? [true, false] : [];
-    for (const value of values) {
-      if (value === option.default) continue;
-      branches.push({ label: `${option.name}=${String(value)}`, options: { [option.name]: value } });
-    }
-  }
-
-  return branches;
-}
 
 /** Type and function names a bundle declares, minus anything that came from the caller. */
 function fixedNames(files: readonly { contents: string }[]): readonly string[] {

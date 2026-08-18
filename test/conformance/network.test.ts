@@ -15,6 +15,8 @@
 import { describe, expect, it } from "vitest";
 
 import { loadCatalog } from "../../src/engine/catalog/load.js";
+import { CorrectableError } from "../../src/engine/errors.js";
+import { branchesOf } from "../branches.js";
 import { generateBundle } from "../bundle.js";
 
 import type { GenerativePattern } from "../../src/engine/catalog/schema.js";
@@ -49,34 +51,6 @@ const REACHES_NETWORK = [
   /\bnavigator\s*\.\s*sendBeacon\b/u,
 ];
 
-type Options = Readonly<Record<string, string | number | boolean>>;
-
-/** The defaults plus one render per non-default option value, matching the emitted-names sweep. */
-function branchesOf(pattern: GenerativePattern): readonly { readonly label: string; readonly options: Options }[] {
-  const branches: { label: string; options: Options }[] = [{ label: "defaults", options: {} }];
-
-  for (const option of pattern.options) {
-    if (option.name === "includeTests") continue;
-    const values: readonly (string | number | boolean)[] =
-      option.type === "enum" ? option.values : option.type === "boolean" ? [true, false] : [];
-    for (const value of values) {
-      if (value === option.default) continue;
-      branches.push({
-        label: `${option.name}=${String(value)}`,
-        options: {
-          [option.name]: value,
-          // A scope narrower than `full` emits bindings that import machinery from somewhere, and the
-          // engine requires being told where (FR-018). Without this the three splittable patterns refuse
-          // the branch, and a branch that never renders is a branch whose network calls go unread.
-          ...(option.name === "emitScope" && value !== "full" ? { coreModule: "./core.js" } : {}),
-        },
-      });
-    }
-  }
-
-  return branches;
-}
-
 /** Where a network primitive appears across every branch of one pattern, as `path:line`. */
 async function reachesFrom(pattern: GenerativePattern): Promise<readonly string[]> {
   const sightings = new Set<string>();
@@ -95,9 +69,12 @@ async function reachesFrom(pattern: GenerativePattern): Promise<readonly string[
       });
       files = bundle.files;
     } catch (error) {
-      // A combination the catalogue declares illegal is not this suite's business. Counted rather than
-      // ignored: if every branch refused, the assertion below would be vacuously true.
-      if (error instanceof Error && error.name.endsWith("Error")) continue;
+      // A combination the catalogue declares illegal is not this suite's business, and only that class is
+      // skipped. Catching every `Error` was the earlier form, and it would have swallowed a bundle that
+      // failed to compile or to format — reporting "rendered under no branch", which points at this
+      // harness instead of at the template. Counted as well, since a pattern refusing every branch would
+      // otherwise pass vacuously.
+      if (error instanceof CorrectableError) continue;
       throw error;
     }
 

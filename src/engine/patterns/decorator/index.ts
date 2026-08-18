@@ -38,6 +38,7 @@ import { importsFrom, siblingSpecifier } from "../../generate/imports.js";
 import { expectFileEntry } from "../expect-file.js";
 import {
   dedent,
+  doc,
   documented,
   joinLines,
   sections,
@@ -412,15 +413,12 @@ function example(context: RenderContext, shape: Shape): string {
   const n = shape.names;
 
   return sections(
-    dedent`
-      /**
-       * Wrapping a ledger in the concerns that would otherwise be repeated in every method.
-       *
-       * The two decorations below are the two shapes worth seeing. \`timing\` observes and forwards, and has
-       * to handle both a synchronous result and a promise to do it honestly. \`authorising\` refuses, which
-       * is the case that shows why \`proceed\` is a call rather than a value: the method never runs.
-       */
-    `,
+    doc(
+      "Wrapping a ledger in the concerns that would otherwise be repeated in every method.",
+      shape.stacking
+        ? "The two decorations below are the two shapes worth seeing. `timing` observes and forwards, and has to handle both a synchronous result and a promise to do it honestly. `authorising` refuses, which is the case that shows why `proceed` is a call rather than a value: the method never runs."
+        : "`timing` observes and forwards, and has to handle both a synchronous result and a promise to do it honestly. The other shape a decoration takes — answering *without* proceeding, so the method never runs — belongs beside a second concern for it to sit outside of, so it is shown where stacking is and asserted in the suite here.",
+    ),
     importsFrom(conventions, siblingSpecifier(conventions, n.stem), {
       values: [n.decorate, ...(shape.stacking ? [n.layer] : [])],
       // Not `OrderCall`: every decoration below takes its argument from the `OrderDecoration` it is
@@ -478,23 +476,26 @@ function example(context: RenderContext, shape: Shape): string {
         }
       `,
     ),
-    documented(
-      [
-        "Refusing the calls that change something.",
-        "A concern that decides per method, which is what `member` being a literal union is for: naming a method the ledger does not have is a compile error here rather than a rule that silently stops applying.",
-        "`never` as the return type of the throwing branch is what lets one arm of the decision refuse while the other returns each method's own result.",
-      ],
-      dedent`
-        function authorising(allowed: () => boolean): ${n.decoration}<Ledger> {
-          return (call) => {
-            if ((call.member === "post" || call.member === "close") && !allowed()) {
-              throw new Error(\`\${String(call.member)} is not permitted\`);
-            }
+    when(
+      shape.stacking,
+      documented(
+        [
+          "Refusing the calls that change something.",
+          "A concern that decides per method, which is what `member` being a literal union is for: naming a method the ledger does not have is a compile error here rather than a rule that silently stops applying.",
+          "`never` as the return type of the throwing branch is what lets one arm of the decision refuse while the other returns each method's own result.",
+        ],
+        dedent`
+          function authorising(allowed: () => boolean): ${n.decoration}<Ledger> {
+            return (call) => {
+              if ((call.member === "post" || call.member === "close") && !allowed()) {
+                throw new Error(\`\${String(call.member)} is not permitted\`);
+              }
 
-            return call.proceed(...call.args);
-          };
-        }
-      `,
+              return call.proceed(...call.args);
+            };
+          }
+        `,
+      ),
     ),
     when(
       !shape.proxied,
@@ -524,7 +525,7 @@ function example(context: RenderContext, shape: Shape): string {
       dedent`
         export function auditedLedger(
           report: (line: string) => void,
-          allowed: () => boolean,
+        ${when(shape.stacking, "  allowed: () => boolean,")}
         ): Ledger {
           return ${appliedToLedger(shape)};
         }

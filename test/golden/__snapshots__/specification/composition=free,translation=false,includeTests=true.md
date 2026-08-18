@@ -358,15 +358,7 @@ export function refusesAnEmptyCombination(): void {
  * opposite for another.
  */
 
-import {
-  and,
-  every,
-  not,
-  or,
-  refine,
-  some,
-  specify,
-} from "./order-specification.js";
+import { and, every, not, or, refine, specify } from "./order-specification.js";
 import type { Order } from "./order-specification.js";
 
 /**

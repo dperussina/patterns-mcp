@@ -888,7 +888,6 @@ import type {
   ChatModel,
   ChatRequest,
   ChatResponse,
-  StreamPart,
   ToolDefinition,
 } from "./chat-model-port.js";
 
@@ -902,30 +901,6 @@ import type {
 const TOOLS = [
   { name: "lookupOrder", inputSchema: { type: "object" } },
 ] as const satisfies readonly ToolDefinition[];
-
-/**
- * Whatever a call refused with.
- *
- * `toThrow` would do for a message, and a message is the wrong thing to assert
- * on: which refusal it was is the contract, and its wording is not.
- */
-function refusalFrom(run: () => unknown): unknown {
-  try {
-    run();
-  } catch (refusal) {
-    return refusal;
-  }
-  throw new Error("expected a refusal, and the call returned");
-}
-
-async function rejectionFrom(run: () => Promise<unknown>): Promise<unknown> {
-  try {
-    await run();
-  } catch (refusal) {
-    return refusal;
-  }
-  throw new Error("expected a rejection, and the call resolved");
-}
 
 /**
  * Streams, built from strings.
@@ -970,10 +945,6 @@ function byteStream(pieces: readonly (readonly number[])[]): ByteStream {
       releaseLock: () => undefined,
     }),
   };
-}
-
-function bytesOf(text: string): readonly number[] {
-  return [...text].map((character) => character.charCodeAt(0));
 }
 
 describe("the port's shapes", () => {

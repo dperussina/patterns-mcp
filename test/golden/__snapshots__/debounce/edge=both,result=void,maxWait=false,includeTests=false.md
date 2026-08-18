@@ -76,8 +76,13 @@ export interface OrderDebounceOptions {
  * `pending` reports whether a call is waiting. Worth having for the same
  * reason: "is there unsaved work" is a question the caller cannot otherwise
  * answer.
+ *
+ * The result type is a parameter only where there is a result. The void
+ * rendering returns nothing, so a second parameter would appear in the type's
+ * name and nowhere in its body — which a project compiling with
+ * `noUnusedLocals` reports, and which is misleading whether or not they do.
  */
-export interface OrderDebounced<A extends readonly unknown[], R> {
+export interface OrderDebounced<A extends readonly unknown[]> {
   (...args: A): void;
   /** Drops the pending call. */
   readonly cancel: () => void;
@@ -101,7 +106,7 @@ export interface OrderDebounced<A extends readonly unknown[], R> {
 export function debounceOrder<A extends readonly unknown[], R>(
   fn: (...args: A) => Promise<R> | R,
   options: OrderDebounceOptions,
-): OrderDebounced<A, R> {
+): OrderDebounced<A> {
   const { waitMs } = options;
   const timers = options.timers ?? orderSystemTimers;
 
@@ -229,7 +234,7 @@ import type { OrderDebounced } from "./order-debounce.js";
 export function searchAsYouType(
   search: (term: string) => Promise<readonly string[]>,
   show: (results: readonly string[]) => void,
-): OrderDebounced<[string], void> {
+): OrderDebounced<[string]> {
   return debounceOrder(
     async (term: string) => {
       show(await search(term));

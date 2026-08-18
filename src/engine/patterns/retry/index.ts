@@ -192,7 +192,7 @@ function core(context: RenderContext, shape: Shape): string {
 
     ${delayForDoc(shape)}
     export function delayFor(
-      attempt: number,
+    ${when(shape.backoff !== "constant", "  attempt: number,")}
       policy: ${Policy},
     ${when(shape.random, "  random: () => number = Math.random,")}
     ): number {
@@ -243,7 +243,7 @@ function core(context: RenderContext, shape: Shape): string {
             break;
           }
 
-          const delayMs = delayFor(attempt, policy${when(shape.random, ", random")});
+          const delayMs = delayFor(${when(shape.backoff !== "constant", "attempt, ")}policy${when(shape.random, ", random")});
           options.onRetry?.({ attempt, delayMs, error });
           await sleep(delayMs${when(shape.cancellable, ", options.signal")});
         }
@@ -323,7 +323,9 @@ function docComment(shape: Shape): string {
 function delayForDoc(shape: Shape): string {
   return joinLines(
     "/**",
-    " * How long to wait after `attempt` failed.",
+    shape.backoff === "constant"
+      ? " * How long to wait after a failure.\n *\n * Takes no attempt number, because a constant schedule does not have one to read: every wait is the\n * same. The other backoffs take one, so a caller switching to those passes it from then on."
+      : " * How long to wait after `attempt` failed.",
     " *",
     " * Exported because it is the part with arithmetic in it: worth testing directly, and worth reusing",
     " * if you need to show a caller when the next attempt will happen.",
@@ -575,33 +577,54 @@ function scheduleTests(shape: Shape, DEFAULTS: string): string {
   );
 
   const withRandom = when(shape.random, ", sequence([0.5])");
+  const flat = shape.backoff === "constant";
+
+  // One assertion where the schedule is flat, since `delayFor` takes no attempt number there and the
+  // other two would be the same call written three times.
+  const schedule = flat
+    ? dedent`
+        it("waits the same time after every failure", () => {
+          const policy = ${DEFAULTS};
+          expect(delayFor(policy${withRandom})).toBe(${String(expected[0] ?? 0)});
+        });
+      `
+    : dedent`
+        it("grows the wait as attempts fail", () => {
+          const policy = ${DEFAULTS};
+          ${expected
+            .map(
+              (value, index) =>
+                `expect(delayFor(${String(index + 1)}, policy${withRandom})).toBe(${String(value)});`,
+            )
+            .join("\n  ")}
+        });
+      `;
+
+  const ceiling = flat
+    ? dedent`
+        it("never waits longer than the ceiling", () => {
+          const policy = { ...${DEFAULTS}, attempts: 20, maxDelayMs: 250 };
+          expect(delayFor(policy${when(shape.random, ", sequence([1])")})).toBeLessThan(251);
+        });
+      `
+    : dedent`
+        it("never waits longer than the ceiling", () => {
+          const policy = { ...${DEFAULTS}, attempts: 20, maxDelayMs: 250 };
+          for (let attempt = 1; attempt <= 20; attempt += 1) {
+            expect(delayFor(attempt, policy${when(shape.random, ", sequence([1])")})).toBeLessThan(251);
+          }
+        });
+      `;
 
   return joinLines(
-    dedent`
-      it("grows the wait as attempts fail", () => {
-        const policy = ${DEFAULTS};
-        ${expected
-          .map(
-            (value, index) =>
-              `expect(delayFor(${String(index + 1)}, policy${withRandom})).toBe(${String(value)});`,
-          )
-          .join("\n  ")}
-      });
-    `,
+    schedule,
     "",
-    dedent`
-      it("never waits longer than the ceiling", () => {
-        const policy = { ...${DEFAULTS}, attempts: 20, maxDelayMs: 250 };
-        for (let attempt = 1; attempt <= 20; attempt += 1) {
-          expect(delayFor(attempt, policy${when(shape.random, ", sequence([1])")})).toBeLessThan(251);
-        }
-      });
-    `,
+    ceiling,
     when(
       shape.jitter === "full",
       `\n${dedent`
         it("can wait no time at all, which is the point of full jitter", () => {
-          expect(delayFor(3, ${DEFAULTS}, sequence([0]))).toBe(0);
+          expect(delayFor(${when(!flat, "3, ")}${DEFAULTS}, sequence([0]))).toBe(0);
         });
       `}`,
     ),
@@ -610,7 +633,7 @@ function scheduleTests(shape: Shape, DEFAULTS: string): string {
       `\n${dedent`
         it("keeps a floor under the wait, which is the point of equal jitter", () => {
           const policy = ${DEFAULTS};
-          expect(delayFor(1, policy, sequence([0]))).toBe(policy.baseDelayMs / 2);
+          expect(delayFor(${when(!flat, "1, ")}policy, sequence([0]))).toBe(policy.baseDelayMs / 2);
         });
       `}`,
     ),

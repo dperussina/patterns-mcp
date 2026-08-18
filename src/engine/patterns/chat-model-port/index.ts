@@ -1797,7 +1797,9 @@ function example(context: RenderContext, names: Names, shape: Shape): string {
           "userMessage",
         ],
         types: [
-          ...(shape.standalone && shape.streaming ? ["StreamingChatModel"] : ["ChatModel"]),
+          // The port's type is named only where the example writes a model out. With an adapter in
+          // scope it constructs one instead, and never says what it is.
+          ...(shape.standalone ? [shape.streaming ? "StreamingChatModel" : "ChatModel"] : []),
           ...(shape.standalone ? ["ChatRequest", "ChatResponse"] : []),
           "Message",
           "ToolDefinition",
@@ -2121,7 +2123,6 @@ function tests(context: RenderContext, names: Names, shape: Shape): string {
           "ChatModel",
           "ChatRequest",
           "ChatResponse",
-          ...(shape.streaming ? ["StreamPart"] : []),
           ...(shape.streaming && !shape.standalone ? ["StreamingChatModel"] : []),
           "ToolDefinition",
         ],
@@ -2254,7 +2255,13 @@ function testFixtures(names: Names, shape: Shape): string {
               }),
             };
           }
-
+        `,
+      ),
+      // Only where a transport is being built: the byte stream above is read by a framing case in
+      // either scope, and the bytes *for* one are only ever assembled from a recorded body.
+      when(
+        !shape.standalone,
+        dedent`
           function bytesOf(text: string): readonly number[] {
             return [...text].map((character) => character.charCodeAt(0));
           }
@@ -2306,30 +2313,35 @@ function testFixtures(names: Names, shape: Shape): string {
         ] as const satisfies readonly ToolDefinition[];
       `,
     ),
-    documented(
-      [
-        "Whatever a call refused with.",
-        "`toThrow` would do for a message, and a message is the wrong thing to assert on: which refusal it was is the contract, and its wording is not.",
-      ],
-      dedent`
-        function refusalFrom(run: () => unknown): unknown {
-          try {
-            run();
-          } catch (refusal) {
-            return refusal;
+    // Both are asked of an encoder, a decoder or a transport, none of which is in scope when the
+    // machinery is being emitted on its own — a model written by hand refuses nothing.
+    when(
+      !shape.standalone,
+      documented(
+        [
+          "Whatever a call refused with.",
+          "`toThrow` would do for a message, and a message is the wrong thing to assert on: which refusal it was is the contract, and its wording is not.",
+        ],
+        dedent`
+          function refusalFrom(run: () => unknown): unknown {
+            try {
+              run();
+            } catch (refusal) {
+              return refusal;
+            }
+            throw new Error("expected a refusal, and the call returned");
           }
-          throw new Error("expected a refusal, and the call returned");
-        }
 
-        async function rejectionFrom(run: () => Promise<unknown>): Promise<unknown> {
-          try {
-            await run();
-          } catch (refusal) {
-            return refusal;
+          async function rejectionFrom(run: () => Promise<unknown>): Promise<unknown> {
+            try {
+              await run();
+            } catch (refusal) {
+              return refusal;
+            }
+            throw new Error("expected a rejection, and the call resolved");
           }
-          throw new Error("expected a rejection, and the call resolved");
-        }
-      `,
+        `,
+      ),
     ),
     recordedBodies(names, shape),
     transport,

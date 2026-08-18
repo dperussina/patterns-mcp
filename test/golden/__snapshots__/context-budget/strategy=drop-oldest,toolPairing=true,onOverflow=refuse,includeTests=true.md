@@ -693,7 +693,7 @@ function report(message: string): void {
  * rather than described in a comment.
  */
 
-import type { Budget, Budgeted, Message } from "./context-budget.js";
+import type { Budgeted, Message } from "./context-budget.js";
 
 /**
  * Forces its argument to be `true`, and fails to compile when it is not.

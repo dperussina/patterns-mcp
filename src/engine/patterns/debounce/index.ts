@@ -238,9 +238,10 @@ function debouncedType(shape: Shape): string {
       "The debounced function, and the three things worth being able to do to it.",
       "`cancel` is what an interface element needs when it goes away with a call outstanding; `flush` is what one needs when it goes away and the call should still happen — a draft saved on close. Both are the difference between a debounce that is usable in a component lifecycle and one that is not.",
       "`pending` reports whether a call is waiting. Worth having for the same reason: \"is there unsaved work\" is a question the caller cannot otherwise answer.",
+      "The result type is a parameter only where there is a result. The void rendering returns nothing, so a second parameter would appear in the type's name and nowhere in its body — which a project compiling with `noUnusedLocals` reports, and which is misleading whether or not they do.",
     ],
     dedent`
-      export interface ${n.debounced}<A extends readonly unknown[], R> {
+      export interface ${n.debounced}<A extends readonly unknown[]${when(shape.awaited, ", R")}> {
         (...args: A): ${returns(shape)};
       ${when(shape.awaited, "  /** Drops the pending call. Anyone waiting on it is rejected. */\n", "  /** Drops the pending call. */\n")}  readonly cancel: () => void;
         /** Runs the pending call now, if there is one. */
@@ -299,7 +300,7 @@ function factory(shape: Shape): string {
       export function ${n.debounce}<A extends readonly unknown[], R>(
         fn: (...args: A) => Promise<R> | R,
         options: ${n.options},
-      ): ${n.debounced}<A, R> {
+      ): ${n.debounced}<A${when(shape.awaited, ", R")}> {
       ${indent(factoryBody(shape), 2)}
       }
     `,
@@ -367,7 +368,11 @@ function state(shape: Shape): string {
     ),
     "/** Calls received since the last invocation. Not since the burst began. */",
     "let pendingCalls = 0;",
-    "let latest: A | undefined = undefined;",
+    // Only where an invocation is still to come. Under the leading edge the burst's one call has
+    // already happened by the time a second arrives, so nothing ever reads these arguments back —
+    // emitted unconditionally they were assigned in two places and read in none, the same defect as
+    // the burst flag above and reachable the same way.
+    when(shape.edge !== "leading", "let latest: A | undefined = undefined;"),
     "let stopQuiet: (() => void) | undefined = undefined;",
     when(shape.ceiling, "let stopCeiling: (() => void) | undefined = undefined;"),
     when(shape.awaited, "let settlers: Settler<R>[] = [];"),
@@ -569,7 +574,7 @@ function debouncedFn(shape: Shape): string {
 
   const body = sections(
     joinLines(
-      "latest = args;",
+      when(shape.edge !== "leading", "latest = args;"),
       "pendingCalls += 1;",
       when(shape.leadingEdge, "const leadingEdge = !active;"),
       when(shape.leadingEdge, "active = true;"),
@@ -603,23 +608,19 @@ function debouncedFn(shape: Shape): string {
 function controls(shape: Shape): string {
   const n = shape.names;
 
-  const cancelBody = shape.awaited
-    ? dedent`
-        const waiting = settlers;
-        settlers = [];
-        pendingCalls = 0;
-        latest = undefined;
-        stopQuiet?.();
-        endBurst();
+  const forget = joinLines(
+    "pendingCalls = 0;",
+    when(shape.edge !== "leading", "latest = undefined;"),
+    "stopQuiet?.();",
+    "endBurst();",
+  );
 
-        for (const settler of waiting) settler.reject(new ${n.cancelled}());
-      `
-    : dedent`
-        pendingCalls = 0;
-        latest = undefined;
-        stopQuiet?.();
-        endBurst();
-      `;
+  const cancelBody = shape.awaited
+    ? sections(
+        joinLines("const waiting = settlers;", "settlers = [];", forget),
+        `for (const settler of waiting) settler.reject(new ${n.cancelled}());`,
+      )
+    : forget;
 
   return dedent`
     return Object.assign(debounced, {
@@ -687,7 +688,7 @@ function example(context: RenderContext, shape: Shape): string {
         export function searchAsYouType(
           search: (term: string) => Promise<readonly string[]>,
           show: (results: readonly string[]) => void,
-        ): ${n.debounced}<[string], void> {
+        ): ${n.debounced}<[string]> {
           return ${n.debounce}(
             async (term: string) => {
               show(await search(term));
@@ -772,7 +773,9 @@ function tests(context: RenderContext, shape: Shape): string {
     `,
     framework,
     importsFrom(conventions, siblingSpecifier(conventions, n.stem), {
-      values: [n.debounce, ...(shape.awaited ? [n.cancelled] : [])],
+      // The cancellation error is named by one case, which needs a caller left waiting — and under the
+      // leading edge there is never one, so importing it on `awaited` alone left the name unread.
+      values: [n.debounce, ...(shape.awaited && shape.trailingEdge ? [n.cancelled] : [])],
       types: [n.timers],
     }),
     helpers(shape),

@@ -55,9 +55,21 @@ rather than edge runtimes.
 **Project Type**: Single published package exposing three entry points — engine library, MCP server,
 and CLI binary.
 
-**Performance Goals**: Warm verification under 5ms per bundle (typecheck measured at ~2.4ms via the
-async API); end-to-end generation p95 under 50ms excluding transport; typical response comfortably
-under 10,000 tokens.
+**Performance Goals**: Warm typecheck under 5ms per bundle; typical response comfortably under 10,000
+tokens. The end-to-end figure originally written here — p95 under 50ms excluding transport — was an
+estimate made before generated tests were being executed, and `test/bench/latency.test.ts` now measures
+the real split of a warm request:
+
+| phase | cost | note |
+|---|---|---|
+| typecheck | ~1ms | inside the 5ms goal, and about 0.5% of a request |
+| format | 18–62ms | Prettier, once per emitted file |
+| execute generated tests | ~100–145ms | one sandboxed Node subprocess per test file |
+| **end to end** | **116–206ms** | producing the code is the remainder, and the remainder is noise |
+
+The 50ms figure is superseded rather than missed: it costed generation, and what a request actually
+costs is proof. See T095 for what this means for SC-009, whose wording assumes verification is a
+fraction of a request when it is very nearly all of one.
 
 **Constraints**: Byte-identical output for identical inputs, permanently. No `eval`, dynamic function
 construction, or subprocess execution of caller content. No state between requests. Responses budgeted
@@ -93,11 +105,12 @@ Tracking.
 Two columns, and both say what was decided rather than what is built — this table is the design gate, not
 a status board, and reading it as one is a mistake worth heading off. Where the two differ today:
 
-- **Principle X** names three adapters. Two exist: the MCP server, and the CLI, whose `--json` output is
-  compared byte-for-byte against `structuredContent` by `test/parity/`. The agent skill is not built
-  (T089). The row is a PASS about a design that admits three adapters over one engine — which it does, and
-  the CLI was written against the same engine entry points with no new ones added — not a claim that all
-  three ship.
+- **Principle X** names three adapters and all three now exist: the MCP server; the CLI, whose `--json`
+  output is compared byte-for-byte against `structuredContent` by `test/parity/`; and the agent skill at
+  `skills/patterns/SKILL.md`, which drives the CLI and adds no engine entry point of its own (T089). The
+  skill is prose rather than code, so "must not diverge" is enforced differently there: every command it
+  shows is parsed by the CLI's own parser and checked against the catalogue that would receive it, and
+  the two behaviours it tells an agent to rely on are round-tripped through `run`.
 - **Principle VI** is satisfied as designed: advisory patterns return `kind: "advisory"`, and there are
   seven of them.
 

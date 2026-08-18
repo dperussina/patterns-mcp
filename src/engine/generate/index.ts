@@ -23,7 +23,7 @@ import {
   UnknownPatternError,
   VerificationError,
 } from "../errors.js";
-import { formatSource, formatterVersion } from "../format/prettier.js";
+import { formatSource, formatterVersion, warmFormatter } from "../format/prettier.js";
 import { deriveNames, loadNameTable } from "../options/names.js";
 import type { NameTable, NameTransform } from "../options/names.js";
 import { assertCoherent } from "../options/conventions.js";
@@ -517,6 +517,15 @@ let namePromise: Promise<NameTable> | undefined;
 let verifier: Verifier | undefined;
 
 /**
+ * The warm in progress, so a second call joins it and a shutdown can wait for it.
+ *
+ * Cleared by `disposeEngine`, because the compiler it warmed is gone: leaving it set would make a later
+ * `warmEngine` resolve instantly against a warm that no longer applies, which is exactly the "reports
+ * success for doing nothing" shape this project keeps finding.
+ */
+let warming: Promise<void> | undefined;
+
+/**
  * The catalog and name table are process-wide caches, not state: each is loaded once and never
  * mutated. The compiler instance *is* stateful — its file tree is swapped per check — so it
  * serialises overlapping checks internally, and every check supplies a complete file set and
@@ -536,8 +545,48 @@ function verifierOnce(): Verifier {
   return verifier;
 }
 
-/** Releases the cached compiler. Adapters call this on shutdown; tests call it between suites. */
+/**
+ * Pays the engine's one-off costs before a caller is waiting on them (SC-009).
+ *
+ * Four things are loaded once per process and then reused: the compiler, Prettier's TypeScript parser,
+ * the catalogue, and the name table. Without this they are all paid by whoever asks first, which
+ * measured at 309ms against 142ms warm — so the first request of a session, the one a caller judges the
+ * tool by, was more than twice the cost of every request after it.
+ *
+ * Concurrently, because they are independent and the compiler's is the long pole. Idempotent, because
+ * each underlying cache is: calling this twice, or calling it while a request is already in flight,
+ * costs a resolved promise.
+ *
+ * Warming is an optimisation and must never be a precondition, so a caller that skips it gets the same
+ * answers a little later, and an adapter that calls it does not need to await it before serving. What it
+ * carries between requests is nothing: every check is handed a complete file set and complete compiler
+ * options, and every format its full option set (contracts/engine-api.md §5).
+ */
+export async function warmEngine(): Promise<void> {
+  warming ??= warmAll();
+  await warming;
+}
+
+async function warmAll(): Promise<void> {
+  await Promise.all([
+    verifierOnce().warm(),
+    warmFormatter(),
+    catalogOnce(),
+    nameTableOnce(),
+  ]);
+}
+
+/**
+ * Releases the cached compiler. Adapters call this on shutdown; tests call it between suites.
+ *
+ * Waiting for work already in flight is the verifier's own responsibility — its disposal takes a turn in the
+ * queue that serialises checks, which is what keeps a shutdown from ending the compiler's stdin under a
+ * dispatched write. What belongs here is releasing the shared warm promise along with the compiler it
+ * warmed: held past this point it would make a later `warmEngine` resolve instantly having warmed nothing.
+ */
 export async function disposeEngine(): Promise<void> {
+  warming = undefined;
+
   const held = verifier;
   verifier = undefined;
   await held?.dispose();

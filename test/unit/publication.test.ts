@@ -65,9 +65,12 @@ describe("the registry record and the package", () => {
     expect(npmPackage?.identifier).toBe(manifest.name);
   });
 
-  it("describe a stdio server, which is the only transport implemented", () => {
-    // `src/mcp/transports/` holds stdio alone. Advertising streamable HTTP here would send a client to
-    // an endpoint that does not exist, and the registry cannot know that.
+  it("describes a stdio server, which is the only transport a client can launch", () => {
+    // HTTP is implemented and shipped as `patterns-mcp-http`, so this is no longer "the only transport" —
+    // but this field says how a client consumes *the published package*, and that is still stdio. A client
+    // installs the package and spawns a binary; it cannot spawn the HTTP one, which needs a port and a Host
+    // allowlist chosen by whoever runs it. The registry's home for a reachable endpoint is `remotes`, and
+    // we host none. Advertising streamable HTTP here would send clients to a URL that does not exist.
     expect(npmPackage?.transport.type).toBe("stdio");
   });
 
@@ -100,6 +103,20 @@ describe("what npm publishes", () => {
     expect(Object.values(manifest.bin)).toContain(
       "./dist/mcp/transports/stdio-bin.mjs",
     );
+  });
+
+  it("exposes the remote transport too, since FR-030 requires both", () => {
+    // Named separately rather than reached by a flag on the stdio binary: the two are run by different
+    // people, and a client config that acquired `--http` by accident would fail in a way its user cannot
+    // read. Listed here so that a build which drops the entry point fails a test rather than a user.
+    expect(manifest.bin["patterns-mcp-http"]).toBe("./dist/mcp/transports/http-bin.mjs");
+  });
+
+  it("ships the agent skill, which is a delivery surface rather than a document", () => {
+    // Principle X names three surfaces, and this one is a file an agent host reads out of the installed
+    // package. Left out of `files` it would be present in the repository, pass its own guard, and be
+    // absent from every install — the failure mode `data` had before the smoke test caught it.
+    expect(manifest.files).toContain("skills");
   });
 
   it("says what it is, since npm shows this and nothing else by default", () => {

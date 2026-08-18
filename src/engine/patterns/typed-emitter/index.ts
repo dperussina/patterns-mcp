@@ -366,7 +366,9 @@ function example(context: RenderContext, shape: Shape): string {
     `,
     importsFrom(conventions, siblingSpecifier(conventions, n.stem), {
       values: [n.emitter],
-      types: [n.name],
+      // Named only where the reporter below is, which is the one place this file annotates anything. Every
+      // other type here comes from the event map through the emitter, which is the point being made.
+      types: shape.isolate ? [n.name] : [],
     }),
     when(
       shape.isolate,

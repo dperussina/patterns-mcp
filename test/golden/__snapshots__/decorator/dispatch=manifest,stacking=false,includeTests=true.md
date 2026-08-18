@@ -232,10 +232,11 @@ function memberNames(subject: object): readonly string[] {
  * Wrapping a ledger in the concerns that would otherwise be repeated in every
  * method.
  *
- * The two decorations below are the two shapes worth seeing. `timing` observes
- * and forwards, and has to handle both a synchronous result and a promise to do
- * it honestly. `authorising` refuses, which is the case that shows why
- * `proceed` is a call rather than a value: the method never runs.
+ * `timing` observes and forwards, and has to handle both a synchronous result
+ * and a promise to do it honestly. The other shape a decoration takes —
+ * answering *without* proceeding, so the method never runs — belongs beside a
+ * second concern for it to sit outside of, so it is shown where stacking is and
+ * asserted in the suite here.
  */
 
 import { decorateOrder } from "./order-decorator.js";
@@ -308,26 +309,6 @@ function timing(report: (line: string) => void): OrderDecoration<Ledger> {
 }
 
 /**
- * Refusing the calls that change something.
- *
- * A concern that decides per method, which is what `member` being a literal
- * union is for: naming a method the ledger does not have is a compile error
- * here rather than a rule that silently stops applying.
- *
- * `never` as the return type of the throwing branch is what lets one arm of the
- * decision refuse while the other returns each method's own result.
- */
-function authorising(allowed: () => boolean): OrderDecoration<Ledger> {
-  return (call) => {
-    if ((call.member === "post" || call.member === "close") && !allowed()) {
-      throw new Error(`${String(call.member)} is not permitted`);
-    }
-
-    return call.proceed(...call.args);
-  };
-}
-
-/**
  * Every method of the ledger, named once.
  *
  * Adding a method to `Ledger` makes this a compile error naming it, which is
@@ -347,10 +328,7 @@ const ledgerMethods: OrderMethods<Ledger> = {
  * and a second concern here would otherwise have to be written as a decoration
  * that calls another by hand.
  */
-export function auditedLedger(
-  report: (line: string) => void,
-  allowed: () => boolean,
-): Ledger {
+export function auditedLedger(report: (line: string) => void): Ledger {
   return decorateOrder(createLedger(), ledgerMethods, timing(report));
 }
 

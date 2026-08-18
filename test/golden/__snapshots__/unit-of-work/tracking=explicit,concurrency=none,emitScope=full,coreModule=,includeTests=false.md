@@ -877,7 +877,7 @@ import { createMemoryStore, withUnitOfWork } from "./unit-of-work-core.js";
 import type { Store, Tracked } from "./unit-of-work-core.js";
 
 import { orderCollectionSpec, orders } from "./order-collection.js";
-import type { OrderRecord, OrderTracking } from "./order-collection.js";
+import type { OrderRecord } from "./order-collection.js";
 
 /**
  * Your own `Order`. The collection requires an `id`; the rest is yours.

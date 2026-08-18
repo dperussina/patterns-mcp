@@ -120,7 +120,11 @@ export class OrderRetryExhaustedError extends Error {
 }
 
 /**
- * How long to wait after `attempt` failed.
+ * How long to wait after a failure.
+ *
+ * Takes no attempt number, because a constant schedule does not have one to
+ * read: every wait is the same. The other backoffs take one, so a caller
+ * switching to those passes it from then on.
  *
  * Exported because it is the part with arithmetic in it: worth testing
  * directly, and worth reusing if you need to show a caller when the next
@@ -129,7 +133,6 @@ export class OrderRetryExhaustedError extends Error {
  * `random` must return a value in [0, 1).
  */
 export function delayFor(
-  attempt: number,
   policy: OrderRetryPolicy,
   random: () => number = Math.random,
 ): number {
@@ -184,7 +187,7 @@ export async function retryOrder<T>(
         break;
       }
 
-      const delayMs = delayFor(attempt, policy, random);
+      const delayMs = delayFor(policy, random);
       options.onRetry?.({ attempt, delayMs, error });
       await sleep(delayMs);
     }

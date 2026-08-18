@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  IllegalCombinationError,
   InvalidIdentifierError,
   InvalidOptionValueError,
   MissingRequiredOptionError,
@@ -185,9 +186,11 @@ describe("value spaces", () => {
   });
 
   it("accepts a valid value of each declared type", () => {
+    // `binding-only` rather than `core-only`, which is the scope this used to name: a `coreModule` is only
+    // read under this one, and sending it with any other is now refused rather than resolved and ignored.
     const resolved = resolveOptions(pattern, {
       options: {
-        emitScope: "core-only",
+        emitScope: "binding-only",
         includeTests: false,
         retries: 0,
         coreModule: "./core.js",
@@ -195,7 +198,7 @@ describe("value spaces", () => {
     });
     expect(resolved.options).toEqual({
       coreModule: "./core.js",
-      emitScope: "core-only",
+      emitScope: "binding-only",
       includeTests: false,
       retries: 0,
     });
@@ -342,6 +345,43 @@ describe("coreModule dependency", () => {
       resolveOptions(pattern, { options: { emitScope: "full" } }).options
         .coreModule,
     ).toBe("");
+  });
+
+  /**
+   * The other half of the same fact, which was missing.
+   *
+   * A `coreModule` under any other scope is read by nothing: the bundle carries its own machinery, so no
+   * file imports the specifier. It was accepted anyway — and not merely ignored, because it still reached
+   * the resolved options and so the provenance hash, which meant three `core-only` requests differing only
+   * in a specifier no file mentions returned identical code under three different `@options` hashes. The
+   * caller was told their request succeeded, and the attribution said the bundles came from different ones.
+   */
+  it.each(["full", "core-only"])("refuses a coreModule at emitScope %s", (scope) => {
+    expect(() =>
+      resolveOptions(pattern, { options: { emitScope: scope, coreModule: "./core.js" } }),
+    ).toThrow(IllegalCombinationError);
+  });
+
+  it("names the scope it was sent with, and both ways out", () => {
+    try {
+      resolveOptions(pattern, { options: { emitScope: "core-only", coreModule: "./core.js" } });
+      throw new Error("expected a refusal");
+    } catch (error) {
+      const message = (error as IllegalCombinationError).message;
+      expect(message, "the scope in effect, not just the one that would read it").toContain(
+        '"core-only"',
+      );
+      expect(message, "withdraw the option").toContain("remove coreModule");
+      expect(message, "or ask for the scope that reads it").toContain('"binding-only"');
+    }
+  });
+
+  it("still applies the default, so a request that sends none is unaffected", () => {
+    // The check judges what the caller sent rather than what resolution produced, because the option's
+    // default is the empty string and every request has one of those after defaulting.
+    expect(resolveOptions(pattern, { options: { emitScope: "core-only" } }).options.coreModule).toBe(
+      "",
+    );
   });
 });
 

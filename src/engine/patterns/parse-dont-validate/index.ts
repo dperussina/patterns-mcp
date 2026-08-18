@@ -340,8 +340,7 @@ function nonEmptyCombinator(shape: Shape): string {
         return (input, path) => {
           if (!Array.isArray(input)) return reject(path, "expected an array");
 
-          const problems: ${n.problem}[] = [];
-          const values: T[] = [];
+          ${when(shape.accumulate, `const problems: ${n.problem}[] = [];\n        `)}const values: T[] = [];
 
           ${loop}
 
@@ -412,8 +411,7 @@ function recordCombinator(shape: Shape): string {
             }
 
             const source = input as Readonly<Record<string, unknown>>;
-            const problems: ${n.problem}[] = [];
-            const built: Record<string, unknown> = {};
+            ${when(shape.accumulate, `const problems: ${n.problem}[] = [];\n          `)}const built: Record<string, unknown> = {};
 
             ${loop}
 
@@ -550,8 +548,7 @@ function linesCheck(shape: Shape): string {
       function parseLines(input: unknown, path: string): ${n.result}<NonEmptyArray<string>> {
         if (!Array.isArray(input)) return reject(path, "expected an array");
 
-        const problems: ${n.problem}[] = [];
-        const values: string[] = [];
+        ${when(shape.accumulate, `const problems: ${n.problem}[] = [];\n      `)}const values: string[] = [];
 
         ${loop}
 

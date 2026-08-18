@@ -621,7 +621,7 @@ export function throttled(
     // Waits rather than refuses, because the work has to happen and the far end
     // would answer 429 anyway. Being told to slow down is cheaper here than
     // being rejected there.
-    await limit.wait("${caller}", 1, signal);
+    await limit.wait(caller, 1, signal);
 
     return await send(path);
   };

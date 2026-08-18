@@ -163,7 +163,6 @@ function parseLines(
 ): OrderParseResult<NonEmptyArray<string>> {
   if (!Array.isArray(input)) return reject(path, "expected an array");
 
-  const problems: OrderProblem[] = [];
   const values: string[] = [];
 
   for (const [index, element] of input.entries()) {

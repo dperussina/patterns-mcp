@@ -164,7 +164,6 @@ export function nonEmptyArrayOf<T>(
   return (input, path) => {
     if (!Array.isArray(input)) return reject(path, "expected an array");
 
-    const problems: OrderProblem[] = [];
     const values: T[] = [];
 
     for (const [index, element] of input.entries()) {
@@ -229,7 +228,6 @@ export function record<
     }
 
     const source = input as Readonly<Record<string, unknown>>;
-    const problems: OrderProblem[] = [];
     const built: Record<string, unknown> = {};
 
     for (const [key, parser] of Object.entries(fields)) {

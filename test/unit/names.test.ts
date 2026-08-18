@@ -315,6 +315,46 @@ describe("withNoun", () => {
     expect(withNoun(derived("Order"), "Events").pascal).toBe("OrderEvents");
   });
 
+  /**
+   * A secondary noun overlapping the entity partway along collapses at the seam like any other.
+   *
+   * Patterns derive several nouns from one entity, and `circuit-breaker`'s are `CircuitBreaker`,
+   * `BreakerPolicy`, `BreakerOptions` and `BreakerOpenError` — so a caller naming their subject after
+   * the artefact meets the seam three more times after the collapse that gives them their breaker. The
+   * result is the name someone would write by hand, because the overlap is where the two names touch and
+   * there is nothing to choose between.
+   */
+  it("collapses a secondary noun at the seam, not only the artefact's own", () => {
+    const entity = derived("OrderCircuitBreaker");
+
+    expect(withNoun(entity, "CircuitBreaker").pascal).toBe("OrderCircuitBreaker");
+    expect(withNoun(entity, "BreakerPolicy").pascal).toBe("OrderCircuitBreakerPolicy");
+    expect(withNoun(entity, "BreakerOptions").pascal).toBe("OrderCircuitBreakerOptions");
+    expect(withNoun(entity, "BreakerOpenError").pascal).toBe("OrderCircuitBreakerOpenError");
+  });
+
+  /**
+   * A word repeated away from the seam is kept, which is a decision rather than a gap.
+   *
+   * `Breaker` and `CircuitBreaker` share a word, and it is not where the names meet, so collapsing it
+   * would mean deleting a word from the middle of one of them. Every candidate loses something the
+   * caller has to have: eliding the noun's leading words gives `Breaker`, which is not the artefact;
+   * eliding the entity gives `CircuitBreaker`, and with it the caller's subject — so two requests
+   * naming different subjects would derive the same names and the same file stems, which is worse than
+   * a long name by the distance between untidy and wrong. Only a synonym table could tell that
+   * `Breaker` was meant as the whole artefact, and that is the coin flip this module refuses to make
+   * elsewhere.
+   *
+   * Not refused either, though a refusal is what the seam collapse's absence might suggest. These are
+   * ordinary domain nouns — the name is only awkward beside the one pattern that appends it, and
+   * `Breaker` is perfectly good for the other twenty-five — so the refusal would have to be per-pattern
+   * and could not say what to pass instead. It spends a turn to hand back nothing.
+   */
+  it("keeps a word repeated away from the seam, rather than guessing which to drop", () => {
+    expect(withNoun(derived("Breaker"), "CircuitBreaker").pascal).toBe("BreakerCircuitBreaker");
+    expect(withNoun(derived("Policy"), "BreakerPolicy").pascal).toBe("PolicyBreakerPolicy");
+  });
+
   it("derives the value form from the words, not from the first character", () => {
     // `APIKeyId` lowercased at the first character is `aPIKeyId`, which is what two patterns emitted
     // — one of them as the name of an exported factory.

@@ -245,6 +245,30 @@ describe("warm reuse", () => {
       await warmed.dispose();
     }
   });
+
+  /**
+   * Disposal waits for work in flight, which matters because warming is the one thing nobody awaits.
+   *
+   * Not a nicety. Disposing while the compiler's handshake is mid-write ends the child's stdin under a
+   * dispatched write, and the rejection appears inside the vendored JSON-RPC writer with nothing able to
+   * catch it. Disposing *before* the handshake is worse in a quieter way: nothing is held yet, so nothing is
+   * released, and the queued work then starts a compiler after the shutdown meant to clean up.
+   *
+   * Asserted as an ordering rather than by counting subprocesses, because the ordering is the property and a
+   * process count is a race dressed up as a number.
+   */
+  it("does not return while work it did not start is still running", async () => {
+    const busy = new Typechecker();
+    let warmed = false;
+    const warming = busy.warm().then(() => {
+      warmed = true;
+    });
+
+    await busy.dispose();
+
+    expect(warmed, "disposal returned while a warm was still talking to the compiler").toBe(true);
+    await warming;
+  });
 });
 
 /**

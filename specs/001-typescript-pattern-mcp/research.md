@@ -422,13 +422,59 @@ for years and is exactly the fiddly-edge-case work section 9 says the value conc
 
 ## Open items carried forward
 
-1. **Header/body validation coverage** — the specification makes it a MUST that a server processing the
-   request body validate `Mcp-Method`, `Mcp-Name`, and `MCP-Protocol-Version` against body values and
-   reject mismatches with `400` and `-32020`. SDK documentation does not confirm whether the HTTP
-   handler does this. Resolve empirically with a deliberately mismatched header before assuming
-   coverage; implement it ourselves if absent.
-2. **Published package name** — must be settled before first publish, because the registry's npm
+1. **Published package name** — must be settled before first publish, because the registry's npm
    ownership check matches `package.json#mcpName` against `server.json#name` exactly. Scope-neutral.
-3. **Response body rendering** — whether the human-readable `content` block is best as Markdown with
-   path-headed fenced blocks or as a serialized structure measurably affects agent performance, with no
-   universal winner. Decide with an evaluation set rather than by preference.
+
+## Settled
+
+**Response body rendering** (was open item 2; T094). The note asked which of Markdown with path-headed
+fenced blocks or a serialized structure serves an agent better, observed that the choice measurably affects
+performance with no universal winner, and deferred it to an evaluation set.
+
+**Resolved: Markdown, with the fence sized to the payload — and the question the note asked was the second
+one.** Comparing the two on how well they read presumes both are *lossless*, and only one of them is by
+construction. A serialized body round-trips because it escapes; a fenced block round-trips only if nothing
+inside it can terminate its own container, and Markdown ends a block at the first line whose backtick run is
+at least as long as the opening fence. The renderer opened every block with three backticks. **Seven files
+in the catalogue contain three backticks** — the regex in `structured-output` that extracts a fenced object,
+the fixture holding the prose a model wrapped one in, and five doc comments showing usage — and every one of
+them sits behind a `*` or a quote, so none closes anything. The rendering was correct by luck: nothing chose
+that property and nothing held it. A pattern emitting a template literal that holds Markdown, which
+`structured-output` already holds inside single quotes, would put three backticks at column zero and cut the
+response there, and the caller would compile most of a module with no indication it was cut — the one silent
+failure this file's own reasoning about truncation refuses to accept.
+
+So the comparison never had to be run. A serialized `content` block was rejected for buying nothing rather
+than for reading worse: `structuredContent` already carries the bundle verbatim for a caller who would
+rather parse than read, so serializing the text block would ship the same bytes twice and leave the readable
+copy — the only one a host displays — as the thing nobody had checked. What replaces the note is
+`test/eval/rendering.test.ts`, which parses every file of every branch back out of the rendered text by
+CommonMark's rules and compares it byte for byte, plus a case built on payloads no pattern has written yet,
+since the catalogue as it stands cannot falsify the rule that fixed it.
+
+**Header/body validation coverage** (was open item 1; T082). The specification makes it a MUST that a
+server processing the request body validate `Mcp-Method`, `Mcp-Name`, and `MCP-Protocol-Version` against
+body values and reject mismatches with `400` and `-32020`. The documentation did not say whether the SDK's
+HTTP handler did this, and the note said to resolve it empirically rather than assume coverage.
+
+**Resolved: the SDK does it, with exactly the required status and code.** Sent against
+`createMcpHandler`, each of these was answered `400` / `-32020` with a message naming both the header and
+the body value:
+
+| Request                                              | Answer                          |
+| ---------------------------------------------------- | ------------------------------- |
+| `Mcp-Method: tools/call` over a `tools/list` body     | `400`, `-32020`                 |
+| no `Mcp-Method` at all                               | `400`, `-32020` — it is required |
+| `Mcp-Name: generate_pattern` over a `list_patterns` call | `400`, `-32020`             |
+| no `Mcp-Name` on a call whose params carry a `name`  | `400`, `-32020` — also required |
+| `MCP-Protocol-Version` disagreeing with the envelope | `400`, `-32020`                 |
+
+So no validation of our own was written. Two things the probe turned up that the requirement's wording does
+not imply: both headers are *required* on a modern request rather than merely checked when present, and that
+asymmetry is invisible over stdio, where there are no headers at all — so a client written against the local
+transport can fail on the remote one for a reason its author never had to think about. Documented in the
+README for that reason.
+
+What replaces the note is `test/contract/http.test.ts`, which asserts each row above. The requirement is
+satisfied by a dependency, and a dependency can stop satisfying it in a patch release; a conformance MUST met
+by accident is one nobody notices losing.

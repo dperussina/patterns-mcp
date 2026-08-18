@@ -8,6 +8,7 @@ structured-output.test.ts: ~ describe("an issue about the value itself")
 structured-output.test.ts: ~ describe("asking for a value")
 structured-output.test.ts: - describe("finding the value in the call")
 structured-output.test.ts: ~ describe("when the answer is wrong")
+structured-output.test.ts: - function callAnswer
 structured-output.test.ts: + describe("finding the value in what the model said")
 structured-output.ts: ~ class MalformedObjectError
 structured-output.ts: ~ function correctionFor
@@ -29,6 +30,7 @@ structured-output.test.ts: ~ describe("an issue about the value itself")
 structured-output.test.ts: ~ describe("asking for a value")
 structured-output.test.ts: - describe("finding the value in the call")
 structured-output.test.ts: ~ describe("when the answer is wrong")
+structured-output.test.ts: - function callAnswer
 structured-output.test.ts: + describe("finding the value in what the model said")
 structured-output.ts: ~ class MalformedObjectError
 structured-output.ts: ~ function correctionFor

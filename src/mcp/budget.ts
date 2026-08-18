@@ -45,3 +45,18 @@ export const TRUNCATION_TOKENS = 25_000;
  * margin is what the rest of the session spends.
  */
 export const BUDGET_TOKENS = 10_000;
+
+/**
+ * Whether a whole tool result is past the point where a host would cut it.
+ *
+ * The *whole* result rather than its text half, which is the distinction T085 left open. Summarising the
+ * text bounds what lands in the transcript and keeps every byte in `structuredContent`, and that is the
+ * right trade for a rendering — nothing is lost, because the data is still complete. It does not bound
+ * the response, and `structuredContent` has no second place to keep what would not fit.
+ *
+ * Serialised rather than summed over the files: what a host counts is the payload, and the escaping and
+ * punctuation of a JSON bundle are a real fraction of it.
+ */
+export function exceedsTruncation(response: unknown): boolean {
+  return estimateTokens(JSON.stringify(response)) > TRUNCATION_TOKENS;
+}

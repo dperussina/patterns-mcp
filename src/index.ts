@@ -13,7 +13,7 @@ import { catalogOnce } from "./engine/catalog/load.js";
 
 import type { PatternDetail } from "./engine/catalog/describe.js";
 
-export { generate, disposeEngine } from "./engine/generate/index.js";
+export { generate, disposeEngine, warmEngine } from "./engine/generate/index.js";
 export type {
   GenerateRequest,
   GenerateResult,

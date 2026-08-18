@@ -1342,7 +1342,10 @@ function example(context: RenderContext, names: Names, shape: Shape): string {
     !inline,
     importsFrom(context.conventions, bindingSpec, {
       values: [names.accessor, names.specFactory],
-      types: [names.accessType, names.recordType],
+      // The accessor's type is written down by one function — the refusal a versioned bundle states —
+      // and everywhere else it is inferred at the call, which is what a caller does. Imported
+      // unconditionally it was a type the file never mentioned.
+      types: [names.recordType, ...(shape.versioned ? [names.accessType] : [])],
     }),
   );
 
@@ -1659,7 +1662,13 @@ function tests(context: RenderContext, names: Names, shape: Shape): string {
       when(
         !inline,
         importsFrom(context.conventions, bindingSpec, {
-          values: [names.accessor, names.collectionConst, names.specFactory],
+          // The collection's name is spoken by one case, which needs to commit behind the unit of
+          // work's back — so only a versioned bundle has anything to name it for.
+          values: [
+            names.accessor,
+            ...(shape.versioned ? [names.collectionConst] : []),
+            names.specFactory,
+          ],
           types: [names.recordType, names.accessType],
         }),
       ),
@@ -1786,10 +1795,6 @@ function testAdapters(names: Names, shape: Shape): string {
         function totalOf(order: Tracked<${names.sampleType}, "id">): number {
           return order.draft.total;
         }
-
-        function statusOf(order: Tracked<${names.sampleType}, "id">): string {
-          return order.draft.status;
-        }
       `
     : dedent`
         function change(
@@ -1812,6 +1817,7 @@ function testAdapters(names: Names, shape: Shape): string {
     [
       "Making a change, however this bundle spells it.",
       "The rest of the suite is identical in both renderings, which is the point: how a change is expressed is an option, what a change *means* is not.",
+      "Reading the status is the one adapter the snapshot rendering does not need. Only the merging case asks for it — a patch is a thing the explicit rendering has and the snapshot one does not — and an adapter no case calls is dead however symmetrical it looks.",
     ],
     body,
   );

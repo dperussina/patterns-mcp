@@ -305,6 +305,39 @@ describe("a refusal", () => {
     expect(withoutSurfaceVocabulary(fromCli.err)).toBe(withoutSurfaceVocabulary(text));
   }, 60_000);
 
+  /**
+   * The one place the two surfaces answer the same request differently, asserted so that it stays a
+   * decision (T087).
+   *
+   * MCP refuses a bundle whose serialised response would be truncated in transit; the CLI writes files to
+   * disk, where there is no such ceiling and therefore nothing to refuse. This is a difference in what the
+   * transport can carry rather than in what the engine produced — the same category as `isError` against
+   * an exit code — but it is the only one that changes whether a caller receives the artefact, so it is
+   * pinned here rather than left to be discovered as a bug.
+   *
+   * Asserted in both directions on purpose. A change that made MCP stop refusing would put a truncatable
+   * response on the wire; a change that made the CLI start refusing would take away the one route to that
+   * bundle, and the MCP refusal names the shell as exactly that route.
+   */
+  it("differs on a bundle too large for a tool result, and only there", async () => {
+    const fromCli = await cli(["generate", "chat-model-port", "--dry-run"]);
+    expect(fromCli.code, "the shell has no response ceiling, so it delivers this").toBe(0);
+    expect(fromCli.err).toBe("");
+
+    const fromMcp = await session.client.callTool({
+      name: "generate_pattern",
+      arguments: { pattern: "chat-model-port", includeTests: true },
+    });
+    expect(fromMcp.isError, "the protocol does, so it refuses rather than sending a cut response").toBe(
+      true,
+    );
+
+    const text = (fromMcp.content as readonly { type: string; text?: string }[])
+      .map((block) => block.text ?? "")
+      .join("\n");
+    expect(text, "and the refusal names the surface that can").toContain("from a shell");
+  }, 180_000);
+
   it("names its own surface when it tells the caller what to do next", async () => {
     const fromCli = await cli(["generate", "zzzzzzzz"]);
     const fromMcp = await session.client.callTool({

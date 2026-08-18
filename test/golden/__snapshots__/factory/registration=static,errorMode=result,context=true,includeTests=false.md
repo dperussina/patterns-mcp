@@ -130,7 +130,7 @@ export type OrderOutcome<T> =
  * creators take unrelated arguments is a set of functions that happen to share
  * a record, and is better written as that.
  */
-export interface OrderFactory<M extends ProductMap, I, C> {
+export interface OrderFactory<M extends ProductMap, I> {
   /**
    * Builds the product for a key the compiler has already checked.
    *
@@ -184,7 +184,7 @@ export interface OrderFactory<M extends ProductMap, I, C> {
 export function createOrderFactory<M extends ProductMap, I, C>(
   creators: OrderCreators<M, I, C>,
   context: C,
-): OrderFactory<M, I, C> {
+): OrderFactory<M, I> {
   // Sorted once here and shared by `kinds` and every failure value, since the
   // creator map cannot change afterwards. Sorting per call would turn what
   // reads like a field access into a sort.

@@ -944,7 +944,6 @@ import {
   userMessage,
 } from "./chat-model-port.js";
 import type {
-  ChatModel,
   Message,
   ToolDefinition,
   ToolResultPart,

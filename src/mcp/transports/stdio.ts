@@ -16,6 +16,7 @@ import type { Transport } from "@modelcontextprotocol/server";
 import { serveStdio, StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 import type { StdioServerHandle } from "@modelcontextprotocol/server/stdio";
 
+import { warmEngine } from "../../engine/generate/index.js";
 import { MINIMUM_NODE, runtimeSupported } from "../../engine/verify/runtime.js";
 import { stderrLog } from "../log.js";
 import type { Logger } from "../log.js";
@@ -38,11 +39,32 @@ export interface ServeStdioOn {
 export function serveStdioOn(options: ServeStdioOn = {}): StdioServerHandle {
   const log = options.log ?? stderrLog;
 
-  return serveStdio(() => createServer(), {
+  const handle = serveStdio(() => createServer(), {
     ...(options.transport === undefined ? {} : { transport: options.transport }),
     onerror: (error: Error) => {
       log(`error: ${error.message}`);
     },
+  });
+
+  warmInBackground(log);
+  return handle;
+}
+
+/**
+ * Pays the engine's start-up costs while the client is still doing its handshake (SC-009).
+ *
+ * Not awaited, and that is the point: the compiler, the parser and the catalogue are all reused rather
+ * than required, so a request arriving before this finishes is answered correctly and merely pays for
+ * what is missing. Awaiting it would delay `initialize` behind ~170ms of work the client is not asking
+ * for, which is the wrong trade — the whole reason to warm here is that this window is otherwise idle.
+ *
+ * A failure is logged and dropped for the same reason. Warming is an optimisation; if it cannot happen,
+ * every request still works, and refusing to serve over it would turn a slower first response into no
+ * response at all.
+ */
+function warmInBackground(log: Logger): void {
+  void warmEngine().catch((error: unknown) => {
+    log(`warm failed, serving cold: ${error instanceof Error ? error.message : "unknown"}`);
   });
 }
 

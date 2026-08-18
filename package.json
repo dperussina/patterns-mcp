@@ -25,11 +25,13 @@
   },
   "bin": {
     "patterns-mcp": "./dist/mcp/transports/stdio-bin.mjs",
+    "patterns-mcp-http": "./dist/mcp/transports/http-bin.mjs",
     "patterns": "./dist/cli/bin.mjs"
   },
   "files": [
     "dist",
-    "data"
+    "data",
+    "skills"
   ],
   "engines": {
     "node": ">=22.13.0"
@@ -46,9 +48,13 @@
     "typecheck": "tsc --noEmit",
     "schema:emit": "tsx scripts/emit-catalog-schema.ts",
     "schema:check": "tsx scripts/emit-catalog-schema.ts --check",
+    "docs:emit": "tsx scripts/emit-docs.ts",
+    "docs:check": "tsx scripts/emit-docs.ts --check",
     "catalog:check": "tsx scripts/validate-catalog.ts",
     "smoke": "tsx scripts/smoke-packaged.ts",
-    "check": "pnpm lint && pnpm typecheck && pnpm schema:check && pnpm catalog:check && pnpm test && pnpm build && pnpm smoke",
+    "serve:http": "tsx src/mcp/transports/http-bin.ts",
+    "conformance:http": "tsx scripts/conformance-http.ts",
+    "check": "pnpm lint && pnpm typecheck && pnpm schema:check && pnpm docs:check && pnpm catalog:check && pnpm test && pnpm conformance:http && pnpm build && pnpm smoke",
     "prepublishOnly": "pnpm run build"
   },
   "keywords": [
@@ -61,6 +67,7 @@
   "packageManager": "pnpm@10.33.0",
   "devDependencies": {
     "@modelcontextprotocol/client": "2.0.0",
+    "@modelcontextprotocol/conformance": "0.1.16",
     "@types/node": "^26.2.0",
     "@vitest/coverage-v8": "^4.1.10",
     "oxlint": "1.77.0",
@@ -75,6 +82,7 @@
     ]
   },
   "dependencies": {
+    "@modelcontextprotocol/node": "2.0.0",
     "@modelcontextprotocol/server": "2.0.0",
     "typescript": "7.0.2",
     "typescript-stable": "npm:typescript@6.0.3",

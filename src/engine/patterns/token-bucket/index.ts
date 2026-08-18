@@ -819,7 +819,13 @@ function example(context: RenderContext, shape: Shape): string {
   const { conventions } = context;
   const n = shape.names;
 
-  const key = shape.keyed ? `"${"$"}{caller}", ` : "";
+  // The subject the keyed façade needs, passed through rather than spelled as a literal. It was one for
+  // a while — a quoted `${caller}`, which is a template placeholder in a string that is not a template,
+  // so every caller shared the one bucket named `${caller}` and the per-caller example limited nobody
+  // per caller. Nothing could have caught it by running: a shared bucket refills and refuses like any
+  // other, and the suite exercises the façade rather than this file. What found it was `caller` going
+  // unread, which is the only trace the mistake leaves.
+  const key = shape.keyed ? "caller, " : "";
 
   const decision = when(
     !shape.waits,

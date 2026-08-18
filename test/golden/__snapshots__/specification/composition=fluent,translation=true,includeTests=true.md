@@ -292,12 +292,7 @@ function render(node: OrderQuery, parameters: (string | number)[]): string {
  * compiler can tell them apart.
  */
 
-import {
-  toSql,
-  whereAtLeast,
-  whereAtMost,
-  whereEquals,
-} from "./order-specification.js";
+import { toSql, whereAtLeast, whereEquals } from "./order-specification.js";
 import type { Order, OrderQuery } from "./order-specification.js";
 
 /**
@@ -456,12 +451,7 @@ export function refusesAMagnitudeOnText(): void {
  * opposite for another.
  */
 
-import {
-  toSql,
-  whereAtLeast,
-  whereAtMost,
-  whereEquals,
-} from "./order-specification.js";
+import { whereAtLeast, whereEquals } from "./order-specification.js";
 import type { Order } from "./order-specification.js";
 
 /**

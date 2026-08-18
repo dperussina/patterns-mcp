@@ -674,30 +674,6 @@ const TOOLS = [
   { name: "lookupOrder", inputSchema: { type: "object" } },
 ] as const satisfies readonly ToolDefinition[];
 
-/**
- * Whatever a call refused with.
- *
- * `toThrow` would do for a message, and a message is the wrong thing to assert
- * on: which refusal it was is the contract, and its wording is not.
- */
-function refusalFrom(run: () => unknown): unknown {
-  try {
-    run();
-  } catch (refusal) {
-    return refusal;
-  }
-  throw new Error("expected a refusal, and the call returned");
-}
-
-async function rejectionFrom(run: () => Promise<unknown>): Promise<unknown> {
-  try {
-    await run();
-  } catch (refusal) {
-    return refusal;
-  }
-  throw new Error("expected a rejection, and the call resolved");
-}
-
 describe("the port's shapes", () => {
   it("a response goes back into the conversation with its tool calls intact", () => {
     const answered: ChatResponse = {

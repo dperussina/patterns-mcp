@@ -13,9 +13,10 @@
  * Launched from a temporary directory, not the repository, so that any path resolved relative to the
  * current working directory fails here rather than in a user's install.
  *
- * All three things `package.json` publishes are exercised, because for a while only one of them was: the
- * server binary, the `patterns` CLI binary, and the library entry loaded the way a CommonJS caller loads
- * it. The last of those is what makes dropping the second build format a tested claim instead of a hope.
+ * Everything `package.json` publishes is exercised, because for a while only one of them was: the stdio
+ * server binary, the remote one over a real socket, the `patterns` CLI binary, and the library entry loaded
+ * the way a CommonJS caller loads it. The last of those is what makes dropping the second build format a
+ * tested claim instead of a hope.
  */
 
 import { spawn } from "node:child_process";
@@ -25,6 +26,7 @@ import process from "node:process";
 
 const DIST = join(import.meta.dirname, "..", "dist");
 const BIN = join(DIST, "mcp", "transports", "stdio-bin.mjs");
+const HTTP_BIN = join(DIST, "mcp", "transports", "http-bin.mjs");
 const CLI = join(DIST, "cli", "bin.mjs");
 const ENTRY = join(DIST, "index.mjs");
 const PROTOCOL_VERSION = "2025-11-25";
@@ -196,7 +198,79 @@ if (required.code !== 0) {
   fail(`the published entry cannot be require()d, so a CommonJS caller has nothing to load:\n${required.stderr}`);
 }
 
+/**
+ * The remote binary, started for real and asked a question over a socket (FR-030).
+ *
+ * Its own case because it is a fourth published entry with a fourth way to be broken by bundling, and
+ * because nothing else here opens a port: the contract suite drives the handler with `Request` objects, so
+ * a mistake in the binary's argument parsing or in the Node bridge would reach a user first.
+ *
+ * `--port 0` and the announced port read back from stderr, rather than a fixed number that could collide
+ * with whatever else is running on a CI machine.
+ */
+const remote = spawn(process.execPath, [HTTP_BIN, "--port", "0"], {
+  cwd: tmpdir(),
+  stdio: ["ignore", "pipe", "pipe"],
+});
+
+let remoteErr = "";
+remote.stderr.setEncoding("utf8");
+
+const listening = await new Promise<number>((resolve, reject) => {
+  const deadline = setTimeout(() => {
+    reject(new Error(`the remote binary never said it was listening. stderr was:\n${remoteErr}`));
+  }, 30_000);
+
+  remote.stderr.on("data", (chunk: string) => {
+    remoteErr += chunk;
+    const found = /listening on http:\/\/[^:]+:(\d+)/u.exec(remoteErr);
+    if (found?.[1] !== undefined) {
+      clearTimeout(deadline);
+      resolve(Number(found[1]));
+    }
+  });
+  remote.on("exit", (code) => {
+    clearTimeout(deadline);
+    reject(new Error(`the remote binary exited with ${String(code)} instead of serving:\n${remoteErr}`));
+  });
+});
+
+try {
+  const answered = await fetch(`http://127.0.0.1:${String(listening)}/mcp`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      accept: "application/json, text/event-stream",
+      // Required on a modern request, and the likeliest thing to be wrong in a hand-written client.
+      "Mcp-Method": "tools/list",
+    },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/list",
+      params: {
+        _meta: {
+          "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+          "io.modelcontextprotocol/clientCapabilities": {},
+        },
+      },
+    }),
+  });
+
+  if (!answered.ok) {
+    fail(`the built remote server answered ${String(answered.status)} to tools/list: ${(await answered.text()).slice(0, 200)}`);
+  }
+
+  const frame = (await answered.json()) as { readonly result?: { readonly tools?: readonly unknown[] } };
+  if ((frame.result?.tools?.length ?? 0) === 0) {
+    fail("the built remote server advertised no tools, so it did not find its own catalogue");
+  }
+} finally {
+  remote.kill();
+}
+
 process.stdout.write(
   `smoke: the built server generated ${String(structured.files?.length ?? 0)} verified files, tests passed; ` +
-    `the CLI listed ${String(listing.total ?? 0)} patterns; the entry loads under require\n`,
+    `the CLI listed ${String(listing.total ?? 0)} patterns; the remote binary served tools/list on a real ` +
+    `port; the entry loads under require\n`,
 );

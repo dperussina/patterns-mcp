@@ -1,0 +1,82 @@
+# Scenarios the official conformance runner reports as failing against this server, each with the reason
+# (SC-011, T083). Consumed by `pnpm conformance:http`.
+#
+# This file is a ratchet, not an excuse list. The runner fails the run if a scenario outside it fails — a new
+# defect cannot be absorbed silently — and equally if a scenario inside it starts passing, which forces the
+# entry to be deleted rather than left to rot. So the cost of a wrong justification here is that it stops
+# being true and the gate says so.
+#
+# Every entry falls into one of three groups, and none of them is a specification violation:
+#
+#   1. The scenario requires a fixture. It asks the server under test to implement a named tool, prompt or
+#      resource — `test_simple_text`, `test://static-text`, `test_prompt_with_arguments` — and checks what
+#      comes back. These scenarios are written for an SDK's reference server, where such fixtures are the
+#      point. A production server shipping them would be exposing test scaffolding to its callers, which is
+#      a worse outcome than a red line in a report.
+#
+#   2. The scenario exercises a capability this server does not declare. A server implements `prompts/*`,
+#      `logging/*`, `completion/*` or the subscription methods only if it advertises them, and this one
+#      advertises none: it has three tools and a small set of resources. `-32601 Method not found` is the
+#      correct answer to a method belonging to an undeclared capability, and implementing any of them to
+#      turn a line green would be adding surface for a report rather than for a caller.
+#
+#   3. The scenario exercises something revision 2026-07-28 removed. `logging/setLevel` and the resource
+#      subscribe/unsubscribe pair are gone from the revision this server is written for. The runner's active
+#      suite spans several revisions, so it still asks.
+#
+#      One entry is in this group for a sharper reason: `server-sse-multiple-streams` cannot run *because*
+#      the server complies. It needs a session identifier to attach a second stream to, and FR-037 makes it a
+#      MUST that this server never creates one. The runner records that as a warning, and the baseline counts
+#      a warning as a failure, so obeying the requirement shows up here as a line to justify. Implementing a
+#      session to clear it would break the requirement it is evidence of.
+#
+# What passes is the part that is ours to get right: `server-initialize`, `ping`, `tools-list`,
+# `resources-list`, and `dns-rebinding-protection` — the last being an independent check of the Host and
+# Origin validation FR-037 requires, from a runner with no knowledge of how it was implemented. That is the
+# result worth having from this suite.
+
+server:
+  # Group 3, and also group 2: deleted by revision 2026-07-28, and never declared.
+  - logging-set-level
+
+  # Group 3: unrunnable because there is no session identifier to hang a second stream on, which is FR-037
+  # being satisfied rather than missed. See the note above.
+  - server-sse-multiple-streams
+
+  # Group 1 and 2: needs the prompt `test_prompt_with_arguments`, and completions are not declared.
+  - completion-complete
+
+  # Group 1: each requires a fixture tool of a given name returning given content. `tools-list` passes, so
+  # the tool surface itself is conformant — what these check is content this server has no reason to emit.
+  - tools-call-simple-text
+  - tools-call-image
+  - tools-call-audio
+  - tools-call-embedded-resource
+  - tools-call-mixed-content
+  - tools-call-with-logging
+  - tools-call-error
+  - tools-call-with-progress
+  # Group 1 and 2: sampling and elicitation are client capabilities this server never requests. A generator
+  # that stopped mid-request to ask the model something would be a different product, and a worse one — the
+  # answers have to be reproducible from the request alone (FR-014).
+  - tools-call-sampling
+  - tools-call-elicitation
+  - elicitation-sep1034-defaults
+  - elicitation-sep1330-enums
+
+  # Group 1: fixture resources at `test://` URIs. `resources-list` passes, so the surface is conformant.
+  - resources-read-text
+  - resources-read-binary
+  - resources-templates-read
+  # Group 2 and 3: subscriptions are not declared, and the revision removed the resources pair. The
+  # catalogue is a build artefact of this package — it changes when a new version is installed, not while a
+  # client is connected — so there is nothing for a subscription to report.
+  - resources-subscribe
+  - resources-unsubscribe
+
+  # Group 2: no prompts capability. Three tools, described by their schemas, are the whole interface.
+  - prompts-list
+  - prompts-get-simple
+  - prompts-get-with-args
+  - prompts-get-embedded-resource
+  - prompts-get-with-image

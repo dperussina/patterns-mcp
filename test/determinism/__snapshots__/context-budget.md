@@ -5,6 +5,7 @@
 roles: core, example, test
 context-budget-example.ts: ~ const BUDGET
 context-budget-example.ts: ~ function main
+context-budget.test-d.ts: ~ import "./context-budget.js"
 context-budget.test-d.ts: + function theStrategyNeedsItsOwnFields
 context-budget.test.ts: ~ const ESTIMATED
 context-budget.test.ts: ~ const EXACT
@@ -27,6 +28,7 @@ context-budget.ts: + function withSummary
 
 roles: core, example, test
 context-budget-example.ts: ~ const BUDGET
+context-budget.test-d.ts: ~ import "./context-budget.js"
 context-budget.test-d.ts: + function theStrategyNeedsItsOwnFields
 context-budget.test.ts: ~ const ESTIMATED
 context-budget.test.ts: ~ const EXACT

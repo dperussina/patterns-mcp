@@ -132,12 +132,23 @@ function strictnessOptions(strictness: Conventions["strictness"]): Record<string
       return { strict: true };
     case "strictest":
       // The options a strict project tends to add once `strict` alone stops catching things.
+      //
+      // The unused-symbol pair belongs here for the same reason as the rest, and its absence was the
+      // gap: a caller asking for this strictness has those flags on — `@tsconfig/strictest` sets both
+      // — so leaving them off meant verifying under settings looser than the ones they compile with,
+      // which is the one thing FR-025 asks this function not to do. It also draws the promise around
+      // the whole bundle rather than the modules a caller integrates, because verification reads every
+      // file: an example that over-imports is a file a caller has to trim before their own build is
+      // green, and a type-level test is unaffected, since these flags object to a name nothing
+      // mentions and its assertions are exported.
       return {
         strict: true,
         noUncheckedIndexedAccess: true,
         exactOptionalPropertyTypes: true,
         noImplicitOverride: true,
         noFallthroughCasesInSwitch: true,
+        noUnusedLocals: true,
+        noUnusedParameters: true,
       };
   }
 }
@@ -237,7 +248,27 @@ export class Typechecker implements Verifier {
     return turn;
   }
 
+  /**
+   * Releases every compiler this verifier holds, after whatever it is doing finishes.
+   *
+   * Taking a turn in the queue rather than acting immediately, which is the whole of the fix. Disposal used
+   * to read `#api` the moment it was called, and that is wrong in both directions depending on where the
+   * work in flight had got to. Mid-handshake, releasing ends the child's stdin under a write already
+   * dispatched, and the rejection surfaces inside the vendored JSON-RPC writer where nothing can catch it —
+   * the failure `#abandon` below documents and avoids by waiting, arrived at through the other path. Before
+   * the handshake, `#api` is still undefined, so disposal releases nothing and the queued work then starts a
+   * compiler *after* the shutdown that was meant to clean up, leaving a subprocess nobody will ever close.
+   *
+   * Found through the second one, indirectly: a full run of 1909 tests all passing and the run failing on an
+   * unhandled `ERR_STREAM_WRITE_AFTER_END`, attributed to the HTTP contract file for the crime of starting a
+   * server and closing it quickly. Warming is the work that makes this reachable, because it is the only
+   * work nobody awaits — an adapter starts it and serves.
+   */
   async dispose(): Promise<void> {
+    await this.#exclusive(async () => await this.#releaseAll());
+  }
+
+  async #releaseAll(): Promise<void> {
     const api = this.#api;
     this.#api = undefined;
     this.#servedByCurrent = 0;

@@ -19,6 +19,7 @@ order-decorator.ts: - type OrderMethods
 
 roles: core, example, test
 order-decorator-example.ts: ~ function auditedLedger
+order-decorator-example.ts: - function authorising
 order-decorator-example.ts: ~ import "./order-decorator.js"
 order-decorator.test.ts: - describe("layerOrderDecorations")
 order-decorator.test.ts: ~ import "./order-decorator.js"

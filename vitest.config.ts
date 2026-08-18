@@ -1,6 +1,15 @@
 import { defineConfig } from "vitest/config";
 
-const suites = ["unit", "contract", "golden", "determinism", "parity", "conformance"] as const;
+const suites = [
+  "unit",
+  "contract",
+  "golden",
+  "determinism",
+  "parity",
+  "conformance",
+  "bench",
+  "eval",
+] as const;
 
 /**
  * How many test files run at once, and why CI gets a different answer.

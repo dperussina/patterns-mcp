@@ -345,7 +345,6 @@ import {
   some,
   toSql,
   whereAtLeast,
-  whereAtMost,
   whereEquals,
 } from "./order-specification.js";
 import type { Order, OrderQuery } from "./order-specification.js";
@@ -533,10 +532,7 @@ import {
   every,
   not,
   or,
-  some,
-  toSql,
   whereAtLeast,
-  whereAtMost,
   whereEquals,
 } from "./order-specification.js";
 import type { Order } from "./order-specification.js";

@@ -1406,7 +1406,6 @@ import {
   userMessage,
 } from "./chat-model-port.js";
 import type {
-  ChatModel,
   Message,
   ToolDefinition,
   ToolResultPart,
@@ -1617,7 +1616,6 @@ import type {
   ChatModel,
   ChatRequest,
   ChatResponse,
-  StreamPart,
   StreamingChatModel,
   ToolDefinition,
 } from "./chat-model-port.js";

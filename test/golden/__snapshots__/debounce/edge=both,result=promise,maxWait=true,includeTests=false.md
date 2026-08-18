@@ -94,6 +94,11 @@ export interface OrderDebounceOptions {
  * `pending` reports whether a call is waiting. Worth having for the same
  * reason: "is there unsaved work" is a question the caller cannot otherwise
  * answer.
+ *
+ * The result type is a parameter only where there is a result. The void
+ * rendering returns nothing, so a second parameter would appear in the type's
+ * name and nowhere in its body — which a project compiling with
+ * `noUnusedLocals` reports, and which is misleading whether or not they do.
  */
 export interface OrderDebounced<A extends readonly unknown[], R> {
   (...args: A): Promise<R>;

@@ -1088,8 +1088,13 @@ function typeTests(context: RenderContext, shape: Shape): string {
     ),
     importsFrom(conventions, siblingSpecifier(conventions, STEM), {
       values: [],
+      // Each of the three is named only where a claim below mentions it. Most of this file is about a
+      // message and about what fitting returns, so the budget is an argument to the call rather than part
+      // of either — except under the two strategies that require a field of their own, where the refusal
+      // to omit it is the claim and has to be written as a budget. Imported unconditionally, it was a
+      // type nothing asked about under every other strategy.
       types: [
-        "Budget",
+        ...(shape.summarising || shape.middleOut ? ["Budget"] : []),
         ...(shape.throwing ? [] : ["Budgeted"]),
         "Message",
       ],

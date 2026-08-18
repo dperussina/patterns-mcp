@@ -126,7 +126,11 @@ export class OrderRetryExhaustedError extends Error {
 }
 
 /**
- * How long to wait after `attempt` failed.
+ * How long to wait after a failure.
+ *
+ * Takes no attempt number, because a constant schedule does not have one to
+ * read: every wait is the same. The other backoffs take one, so a caller
+ * switching to those passes it from then on.
  *
  * Exported because it is the part with arithmetic in it: worth testing
  * directly, and worth reusing if you need to show a caller when the next
@@ -135,7 +139,6 @@ export class OrderRetryExhaustedError extends Error {
  * `random` must return a value in [0, 1).
  */
 export function delayFor(
-  attempt: number,
   policy: OrderRetryPolicy,
   random: () => number = Math.random,
 ): number {
@@ -196,7 +199,7 @@ export async function retryOrder<T>(
         break;
       }
 
-      const delayMs = delayFor(attempt, policy, random);
+      const delayMs = delayFor(policy, random);
       options.onRetry?.({ attempt, delayMs, error });
       await sleep(delayMs, options.signal);
     }
@@ -373,11 +376,9 @@ function flaky(times: number): (attempt: number) => Promise<string> {
 }
 
 describe("the delay schedule", () => {
-  it("grows the wait as attempts fail", () => {
+  it("waits the same time after every failure", () => {
     const policy = DEFAULT_ORDER_RETRY_POLICY;
-    expect(delayFor(1, policy, sequence([0.5]))).toBe(50);
-    expect(delayFor(2, policy, sequence([0.5]))).toBe(50);
-    expect(delayFor(3, policy, sequence([0.5]))).toBe(50);
+    expect(delayFor(policy, sequence([0.5]))).toBe(50);
   });
   it("never waits longer than the ceiling", () => {
     const policy = {
@@ -385,12 +386,10 @@ describe("the delay schedule", () => {
       attempts: 20,
       maxDelayMs: 250,
     };
-    for (let attempt = 1; attempt <= 20; attempt += 1) {
-      expect(delayFor(attempt, policy, sequence([1]))).toBeLessThan(251);
-    }
+    expect(delayFor(policy, sequence([1]))).toBeLessThan(251);
   });
   it("can wait no time at all, which is the point of full jitter", () => {
-    expect(delayFor(3, DEFAULT_ORDER_RETRY_POLICY, sequence([0]))).toBe(0);
+    expect(delayFor(DEFAULT_ORDER_RETRY_POLICY, sequence([0]))).toBe(0);
   });
 });
 

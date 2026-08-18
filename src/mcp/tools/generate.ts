@@ -15,9 +15,9 @@ import { z } from "zod";
 
 import { generate } from "../../engine/generate/index.js";
 import type { Advisory, Bundle } from "../../engine/generate/index.js";
-import { BUDGET_TOKENS, estimateTokens } from "../budget.js";
+import { BUDGET_TOKENS, estimateTokens, exceedsTruncation } from "../budget.js";
 import { cacheHintMeta } from "../cache.js";
-import { strictObject, toErrorResult } from "../errors.js";
+import { oversizedResult, strictObject, toErrorResult } from "../errors.js";
 
 import type { CallToolResult } from "@modelcontextprotocol/server";
 
@@ -271,23 +271,94 @@ export async function handleGenerate(
       options: optionsFor(input),
     });
 
-    return {
-      content: [
-        {
-          type: "text",
-          text:
-            result.kind === "advisory"
-              ? renderAdvisory(result)
-              : render(result, input.verbosity),
-        },
-      ],
-      structuredContent: result,
-      _meta: cacheHintMeta(),
-    };
+    return result.kind === "advisory"
+      ? {
+          // A paragraph, which cannot approach the ceiling, so it is not measured against it.
+          content: [{ type: "text", text: renderAdvisory(result) }],
+          structuredContent: result,
+          _meta: cacheHintMeta(),
+        }
+      : bundleResult(result, input.verbosity);
   } catch (error) {
     return toErrorResult(error);
   }
 }
+
+/**
+ * Two ways a bundle can be too big, and they want opposite answers (T087).
+ *
+ * **A rendering that does not fit costs nothing to shrink**, because `structuredContent` keeps every
+ * byte: the caller has the whole bundle whatever the text says, so summarising loses information about
+ * the response rather than information from it. That is T085's reasoning and it holds for a caller who
+ * asked for `full` as much as for one who asked for nothing — honouring a rendering preference by
+ * handing back a rendering that arrives cut is not honouring it. Measuring found this to be a quarter of
+ * the catalogue, not an edge: `verbosity: full` copies every file into the text beside the structured
+ * copy, so it roughly doubles the response and pushes six patterns past the ceiling whose default fits
+ * comfortably. Refusing those would be charging a caller their bundle for a presentation choice.
+ *
+ * **A bundle that does not fit even unrendered has nowhere to put the excess**, so it is refused. That is
+ * the genuine case, and there is exactly one request in the catalogue that reaches it.
+ *
+ * The order matters: shrink first, refuse only if the smallest rendering still will not cross.
+ */
+function bundleResult(bundle: Bundle, requested: Verbosity | undefined): CallToolResult {
+  const preferred = renderingFor(bundle, requested);
+  const first = assemble(
+    bundle,
+    preferred,
+    preferred === "summary" && requested === undefined ? SUMMARISED_FOR_BUDGET : undefined,
+  );
+  if (!exceedsTruncation(first)) return first;
+
+  if (preferred !== "summary") {
+    const smaller = assemble(bundle, "summary", SUMMARISED_FOR_CEILING);
+    if (!exceedsTruncation(smaller)) return smaller;
+  }
+
+  // Nothing left to shrink: the files themselves are what will not fit.
+  const floor = assemble(bundle, "summary", SUMMARISED_FOR_CEILING);
+  return oversizedResult(bundle, estimateTokens(JSON.stringify(floor)));
+}
+
+function assemble(
+  bundle: Bundle,
+  verbosity: Verbosity,
+  notice: string | undefined,
+): CallToolResult {
+  const sections = sectionsOf(bundle, verbosity);
+  if (notice !== undefined) sections.push(notice);
+
+  return {
+    content: [{ type: "text", text: sections.join("\n\n") }],
+    structuredContent: bundle,
+    _meta: cacheHintMeta(),
+  };
+}
+
+/**
+ * Said only when *we* chose to summarise. A caller who asked for a summary knows why they got one; a
+ * caller who asked for nothing needs to know that this is not the whole bundle and what to do about it.
+ */
+const SUMMARISED_FOR_BUDGET =
+  "This response was summarised because the full rendering would risk being truncated in transit, " +
+  "which would deliver a partial file with no indication that it was cut. Nothing was lost: ask " +
+  "again with verbosity `full` for the contents, or narrow the request — `includeTests: false`, " +
+  "or `emitScope: core-only` then `binding-only`, each of which returns a smaller whole.";
+
+/**
+ * Said when a caller asked for a rendering and the ceiling would not carry it.
+ *
+ * Distinct wording because the situations differ in what the caller should do: the notice above offers
+ * `verbosity: full` as the way to the contents, and repeating that here would send them back to the
+ * request that has just been declined. Every file is in the structured result either way, which is the
+ * sentence that matters and the reason this is a notice rather than a refusal.
+ */
+const SUMMARISED_FOR_CEILING =
+  "The rendering you asked for was replaced with a summary: reproducing every file as text beside the " +
+  "structured copy would put this response past the size at which hosts truncate a tool result, and a " +
+  "truncated rendering is not the one you asked for. Every file is complete in the structured result. " +
+  "To read the contents as text, narrow the request — `emitScope: core-only` then `binding-only`, or " +
+  "`includeTests: false` — and ask for verbosity `full` on the smaller whole.";
 
 /**
  * Folds the flat inputs into the single options record the engine validates.
@@ -333,31 +404,6 @@ function renderingFor(
 }
 
 /**
- * Renders the bundle for a reader.
- *
- * Whether Markdown or a serialized structure serves an agent better is an open question to settle with
- * an evaluation set rather than by preference (T094), so this stays deliberately plain: path-headed
- * fenced blocks, in bundle order.
- */
-function render(bundle: Bundle, requested: Verbosity | undefined): string {
-  const verbosity = renderingFor(bundle, requested);
-  const sections = sectionsOf(bundle, verbosity);
-
-  // Said only when *we* summarised. A caller who asked for a summary knows why they got one; a caller
-  // who asked for nothing needs to know that this is not the whole bundle and what to do about it.
-  if (requested === undefined && verbosity === "summary") {
-    sections.push(
-      "This response was summarised because the full rendering would risk being truncated in transit, " +
-        "which would deliver a partial file with no indication that it was cut. Nothing was lost: ask " +
-        "again with verbosity `full` for the contents, or narrow the request — `includeTests: false`, " +
-        "or `emitScope: core-only` then `binding-only`, each of which returns a smaller whole.",
-    );
-  }
-
-  return sections.join("\n\n");
-}
-
-/**
  * Renders advice for a reader.
  *
  * Leads by naming the pattern as superseded rather than by opening with the alternative, because the
@@ -389,6 +435,41 @@ function renderAdvisory(advisory: Advisory): string {
   return sections.join("\n\n");
 }
 
+/**
+ * A fence long enough that nothing in `contents` can close it early.
+ *
+ * Markdown ends a fenced block at the first line whose leading backtick run is at least as long as the
+ * opening one, so a file containing a line of three backticks closes a three-backtick fence from the
+ * inside — and everything after it arrives as prose. That is silent corruption of a response the caller
+ * compiles, which is the failure mode this file already refuses to accept from truncation.
+ *
+ * Seven files in the catalogue contain a fence today, all of them inside a doc comment or a string, so
+ * every one is preceded by ` * ` or a quote and none of them closes anything. The rendering was correct
+ * by luck: nothing chose that, nothing enforced it, and a pattern whose emitted source begins a line
+ * with three backticks — a template literal holding Markdown, which `structured-output` already holds
+ * inside single quotes — would have broken it. One longer than the longest run present is the rule that
+ * makes the losslessness a property rather than a coincidence, and `test/eval/rendering.test.ts` is what
+ * holds it: every file of every branch is parsed back out of the text and compared byte for byte.
+ *
+ * Exported for that suite, because the round-trip alone cannot reach this. No pattern starts a line with a
+ * fence today, so a three-backtick opener would pass every case in the catalogue — the guard would be
+ * untested by the very evidence that recommends it. The test names a payload no pattern has written yet,
+ * which is the only way to assert a rule whose purpose is to survive one being written.
+ */
+export function fenceFor(contents: string): string {
+  const runs = [...contents.matchAll(/`+/gu)].map((match) => match[0].length);
+  return "`".repeat(Math.max(3, ...runs.map((run) => run + 1)));
+}
+
+/**
+ * The bundle as sections of text.
+ *
+ * Markdown with path-headed fenced blocks, in bundle order, which T094 settled by measurement rather
+ * than by preference: the rendering a host displays is only worth keeping if a reader can recover the
+ * files from it exactly, and that is now asserted over every branch of every pattern rather than
+ * assumed. A serialized structure would round-trip too and buys nothing here, since `structuredContent`
+ * already carries the bundle verbatim for a caller that wants to parse rather than read.
+ */
 function sectionsOf(bundle: Bundle, verbosity: Verbosity): string[] {
   const sections: string[] = [];
 
@@ -404,7 +485,12 @@ function sectionsOf(bundle: Bundle, verbosity: Verbosity): string[] {
     );
   } else {
     for (const file of bundle.files) {
-      sections.push(`### ${file.path}\n\n\`\`\`ts\n${file.contents}\`\`\``);
+      const fence = fenceFor(file.contents);
+      // A closing fence has to begin a line, and the contents are formatted output that ends with a
+      // newline — but relying on that put the two facts a line apart, so the newline is added here where
+      // the fence it protects is written.
+      const body = file.contents.endsWith("\n") ? file.contents : `${file.contents}\n`;
+      sections.push(`### ${file.path}\n\n${fence}ts\n${body}${fence}`);
     }
   }
 

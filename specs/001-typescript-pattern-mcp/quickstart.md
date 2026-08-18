@@ -38,13 +38,20 @@ checks, never in advance, because a gate that is red for structural reasons cann
 | `lint` | The engine/MCP import boundary (Principle X) and the determinism bans | T003, extended by T024 |
 | `typecheck` | Our own sources under `strict` | scaffold |
 | `schema:check` | That `data/schema.json` still matches the Zod schema it is derived from | T009 |
+| `docs:check` | That `docs/catalogue.md` still matches the catalogue it was emitted from | T091 |
 | `catalog:check` | Schema conformance, provenance, licence terms, and the `{category}.json` file-name convention | T011 |
-| `test` | Six projects: unit, contract, golden, determinism, parity, conformance | T005 |
+| `test` | Eight projects: unit, contract, golden, determinism, parity, conformance, bench, eval | T005, extended by T095 and T093 |
+| `conformance:http` | The protocol requirements that only hold over a real HTTP listener | T082 |
 | `build` | Declaration emit, which can fail where `tsc --noEmit` passes | scaffold |
 | `smoke` | The three things the manifest publishes: the server binary, the CLI binary, and the entry under `require` | T152 |
 
-Protocol conformance is a suite inside `test` rather than a stage of its own — see Scenario 9 for why the
-official runner is not one of these rows.
+Protocol conformance over stdio is a suite inside `test` rather than a stage of its own — see Scenario 9
+for why the official runner is not one of these rows.
+
+`eval` is the one project whose expectations come from outside the generator: seventeen goals written in a
+caller's words, and the two properties SC-006 and SC-007 rest on — that discovery carries what a request
+needs, and that a refusal carries its own remedy. See T093 for why it measures those rather than the rates
+themselves.
 
 ---
 

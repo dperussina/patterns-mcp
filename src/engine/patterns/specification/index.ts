@@ -588,9 +588,31 @@ function importedNames(shape: Shape): readonly string[] {
       ].toSorted();
 }
 
+/**
+ * The names above, narrowed to the ones a given file mentions.
+ *
+ * Three files import from the module — the example, the suite, and the type-level test — and each was
+ * handed the same list, which over-imported for all of them: `whereAtMost` is declared by none of the
+ * rules any of them writes, and the free-function `some` is reached by the example and the suite and not
+ * by the type test. A project compiling with `noUnusedLocals` reports every one of those.
+ *
+ * Filtered from the body rather than listed per file, because a list per file is three lists to keep in
+ * step with whatever the bodies do next, and the drift would be silent: the import is still correct
+ * TypeScript, so nothing but that one compiler flag would ever mention it. The candidates are this
+ * pattern's own exports and the bodies are rendered by the same function that then asks, so the question
+ * is closed — a name is imported exactly when the file it is imported into says it.
+ */
+function namesUsedIn(body: string, shape: Shape): readonly string[] {
+  return importedNames(shape).filter((name) =>
+    new RegExp(String.raw`(?<![\w$])${name}(?![\w$])`, "u").test(body),
+  );
+}
+
 function example(context: RenderContext, shape: Shape): string {
   const { conventions } = context;
   const n = shape.names;
+
+  const body = exampleBody(shape);
 
   return sections(
     dedent`
@@ -605,9 +627,17 @@ function example(context: RenderContext, shape: Shape): string {
        */
     `,
     importsFrom(conventions, siblingSpecifier(conventions, n.stem), {
-      values: [...importedNames(shape)],
+      values: [...namesUsedIn(body, shape)],
       types: [n.subject, ...(shape.translation ? [n.query] : [])],
     }),
+    body,
+  );
+}
+
+function exampleBody(shape: Shape): string {
+  const n = shape.names;
+
+  return sections(
     documented(
       [
         "The rules, each with a name.",
@@ -780,6 +810,8 @@ function typeTests(context: RenderContext, shape: Shape): string {
   const { conventions } = context;
   const n = shape.names;
 
+  const body = typeTestsBody(shape);
+
   return sections(
     dedent`
       /**
@@ -796,10 +828,18 @@ function typeTests(context: RenderContext, shape: Shape): string {
        */
     `,
     importsFrom(conventions, siblingSpecifier(conventions, n.stem), {
-      values: [...importedNames(shape)],
+      values: [...namesUsedIn(body, shape)],
       types: [n.subject],
     }),
     typeAssertKit(["Equal", "Extends", "NotAssignable"]),
+    body,
+  );
+}
+
+function typeTestsBody(shape: Shape): string {
+  const n = shape.names;
+
+  return sections(
     documented(
       [
         "The rules under test, declared as the example declares them.",
@@ -910,9 +950,17 @@ function tests(context: RenderContext, shape: Shape): string {
     `,
     framework,
     importsFrom(conventions, siblingSpecifier(conventions, n.stem), {
-      values: [...importedNames(shape)],
+      values: [...namesUsedIn(testsBody(shape), shape)],
       types: [n.subject],
     }),
+    testsBody(shape),
+  );
+}
+
+function testsBody(shape: Shape): string {
+  const n = shape.names;
+
+  return sections(
     dedent`
       ${ruleDeclarations(shape).replace(/^export /gm, "")}
 

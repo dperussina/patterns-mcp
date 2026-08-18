@@ -22,6 +22,7 @@ roles: core, example, test
 order-emitter-example.ts: ~ const orders
 order-emitter-example.ts: - function refusesAMissingErrorSink
 order-emitter-example.ts: - function report
+order-emitter-example.ts: - import "./order-emitter.js"#2
 order-emitter-example.ts: + function refusesAnErrorSink
 order-emitter.test.ts: ~ describe("a failing subscriber")
 order-emitter.test.ts: - function collector

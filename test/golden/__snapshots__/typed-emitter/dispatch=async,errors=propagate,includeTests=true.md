@@ -229,7 +229,6 @@ export class OrderEmitter extends TypedEmitter<OrderEvents> {}
  */
 
 import { OrderEmitter } from "./order-emitter.js";
-import type { OrderEventName } from "./order-emitter.js";
 
 /**
  * Subscribing.

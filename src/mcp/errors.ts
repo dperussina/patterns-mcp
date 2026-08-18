@@ -15,7 +15,9 @@ import { z } from "zod";
 import type { CallToolResult } from "@modelcontextprotocol/server";
 
 import { EngineError, VerificationError } from "../engine/errors.js";
+import type { Bundle } from "../engine/generate/index.js";
 import { detailOf, list, messageFor, referenceFor, safe } from "../refusals.js";
+import { TRUNCATION_TOKENS } from "./budget.js";
 import { cacheHintMeta } from "./cache.js";
 import { stderrLog } from "./log.js";
 import { CORRECTABLE_META_KEY, ERROR_CODE_META_KEY } from "./meta.js";
@@ -215,6 +217,80 @@ function unclassified(error: unknown, log: Logger): string {
     "The server failed to handle this request. This is a defect, not a problem with your input. " +
     `Reference ${correlationId} when reporting it.`
   );
+}
+
+/**
+ * The refusal for a bundle that cannot be delivered whole over this transport (SC-008, T087).
+ *
+ * Composed here rather than in `../refusals.ts` because, unlike every other refusal, it has no
+ * counterpart on the other surface and should not: the CLI writes to disk, where there is no ceiling and
+ * therefore nothing to refuse. Putting it in the shared composer would mean adding a message the CLI can
+ * never send, and a vocabulary entry for a command that would never appear.
+ *
+ * **Refusing rather than returning a subset**, which was the open question. A subset is the more
+ * ergonomic answer for the one pattern that trips this and the worse answer for the other twenty-five:
+ * `files` currently means *the bundle*, and admitting a partial one changes that for every response, so
+ * every consumer would need a completeness check it does not need today — permanently, to accommodate a
+ * single case. It is also the guess this project refuses elsewhere. Which file to drop is a judgement
+ * about what the caller wanted, and a caller who receives four files out of five has to *notice* a
+ * sentence in order to know, where a refusal cannot be missed.
+ *
+ * The cost is real and worth stating: the narrowed calls named below deliver the same code across two
+ * responses, but a suite that only the full bundle emits is not reachable over MCP at all. That is what
+ * the last clause is for — the same request through the CLI has no ceiling, which is Principle X paying
+ * for itself rather than an apology.
+ *
+ * The levers are derived from the bundle rather than listed, so the message cannot name a narrowing the
+ * pattern does not offer.
+ */
+export function oversizedResult(bundle: Bundle, tokens: number): CallToolResult {
+  const levers: string[] = [];
+
+  if (bundle.files.some((file) => file.role === "test")) {
+    levers.push(
+      "`includeTests: false`, which returns the code without the suite that was already executed " +
+        "against it — the verification record still reports that it ran and passed",
+    );
+  }
+
+  // `emitScope` appears in the resolved options only for a pattern that splits, so its presence is the
+  // question "does this pattern have halves?" already answered by the engine.
+  if (bundle.resolvedOptions["emitScope"] !== undefined) {
+    levers.push(
+      "`emitScope: core-only`, then `emitScope: binding-only` with `coreModule` set to where you put " +
+        "the core — the same files across two responses, each of which fits",
+    );
+  }
+
+  return {
+    isError: true,
+    content: [
+      {
+        type: "text",
+        text:
+          `Generating ${bundle.pattern} with these options produces a response of about ` +
+          `${String(tokens)} tokens, past the ${String(TRUNCATION_TOKENS)} at which agent hosts ` +
+          `truncate a tool result. Nothing is wrong with the request — it is the answer that does not ` +
+          `fit, and a truncated one would hand you part of a file with no indication that it was cut. ` +
+          (levers.length === 0
+            ? ""
+            : `Ask again with ${levers.length === 1 ? "" : "one of: "}${levers.join("; or ")}. `) +
+          "Or run `patterns generate " +
+          bundle.pattern +
+          "` from a shell, which writes to disk and has no response limit.",
+      },
+    ],
+    // No `structuredContent`, for the reason the refusal below gives: the output schema describes a
+    // bundle and there is no bundle to return. Sending a truncated one would be the failure this exists
+    // to prevent, wearing the shape of a success.
+    _meta: {
+      [ERROR_CODE_META_KEY]: "response_too_large",
+      [CORRECTABLE_META_KEY]: true,
+      // Deterministic: size is a function of the bundle, so the same request is refused identically and
+      // a caller who does not know that retries a call whose outcome is fixed.
+      ...cacheHintMeta(),
+    },
+  };
 }
 
 export function toErrorResult(

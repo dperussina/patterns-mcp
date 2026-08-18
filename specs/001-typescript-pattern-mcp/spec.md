@@ -543,6 +543,12 @@ command-line surfaces and confirm byte-identical results.
   set.
 - **SC-007**: When a request is refused, an agent corrects it and succeeds on the next attempt in at
   least 90% of trials, without needing an additional discovery call.
+
+  Both rates are measured against an agent, so neither can be established by a suite that supplies the
+  agent: whoever writes it also decides whether it succeeds. What `test/eval/` measures instead is the
+  necessary condition each rests on — that discovery carries everything a valid request needs, and that a
+  refusal carries its own remedy — since an agent can do neither if the information is absent. The rates
+  themselves need a model, a key and a nondeterministic run. See T093.
 - **SC-008**: A typical response fits within a documented budget well under the point at which
   common agent hosts truncate tool results.
 - **SC-009**: Added latency from verification is a small fraction of total request time, and never

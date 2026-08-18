@@ -133,6 +133,30 @@ function typeArgs(shape: Shape, options: { first?: string; own?: string } = {}):
   return `<${list.join(", ")}>`;
 }
 
+/**
+ * Whether the factory type itself is parameterised by the context, which is narrower than whether
+ * there is one.
+ *
+ * A context is handed to the creators at construction and is not observable through the factory: two
+ * factories over the same products and input are interchangeable here whatever they close over. So the
+ * parameter earns its place only where a member mentions it, which is `extend` — it returns a factory
+ * whose creators take the same context, so a dynamic factory names the type and a static one has
+ * nowhere to. Declared regardless, it appeared in the exported name and nowhere in the body, which is
+ * what a project compiling with `noUnusedLocals` reports.
+ */
+function factoryHoldsContext(shape: Shape): boolean {
+  return shape.context && shape.dynamic;
+}
+
+/** The factory type's own parameters, and the same list as arguments. */
+function factoryParams(shape: Shape): string {
+  return `<M extends ProductMap, I${when(factoryHoldsContext(shape), ", C")}>`;
+}
+
+function factoryArgs(shape: Shape, first = "M"): string {
+  return `<${first}, I${when(factoryHoldsContext(shape), ", C")}>`;
+}
+
 /** Indents every line by `width`, leaving blank lines blank. */
 function indentBy(text: string, width: number): string {
   const pad = " ".repeat(width);
@@ -268,7 +292,7 @@ function factoryInterface(shape: Shape): string {
             dedent`
               extend<E extends ProductMap>(
                 additions: ${n.creators}${typeArgs(shape, { first: "E" })},
-              ): ${n.factory}${typeArgs(shape, { first: "M & E" })};
+              ): ${n.factory}${factoryArgs(shape, "M & E")};
             `,
           ),
         ]
@@ -298,7 +322,7 @@ function factoryInterface(shape: Shape): string {
         `,
         `\`I\` is the input every creator accepts${shape.context ? ", and `C` a context they all receive alongside it" : ""}. ${shape.context ? "Both are" : "It is a"} single type rather than a per-key one: a factory whose creators take unrelated arguments is a set of functions that happen to share a record, and is better written as that.`,
       ],
-      `export interface ${n.factory}${typeParams(shape)} {`,
+      `export interface ${n.factory}${factoryParams(shape)} {`,
     ),
     members.join("\n\n"),
     "}",
@@ -364,7 +388,7 @@ function builder(shape: Shape): string {
     dedent`
       export function ${n.build}${typeParams(shape)}(
         creators: ${n.creators}${typeArgs(shape)},${when(shape.context, "\n  context: C,")}
-      ): ${n.factory}${typeArgs(shape)} {
+      ): ${n.factory}${factoryArgs(shape)} {
         // Sorted once here and shared by \`kinds\` and every failure value, since the creator map cannot
         // change afterwards. Sorting per call would turn what reads like a field access into a sort.
         //

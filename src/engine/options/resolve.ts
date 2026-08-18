@@ -13,6 +13,7 @@
  * option set.
  */
 import {
+  IllegalCombinationError,
   InvalidIdentifierError,
   InvalidOptionValueError,
   MissingRequiredOptionError,
@@ -148,7 +149,7 @@ export function resolveOptions(
     }
   }
 
-  requireCoreModule(resolved);
+  checkCoreModule(resolved, supplied);
 
   return {
     pattern: pattern.name,
@@ -175,22 +176,54 @@ function resolveVariant(
 }
 
 /**
- * `coreModule` has no usable default: it names a module only the caller knows
- * about. It is therefore declared as an ordinary option but required once
- * `emitScope` is `binding-only`, which is a dependency between two options and
- * so cannot be expressed as a default (FR-018).
+ * `coreModule` is read under exactly one scope, so it is required there and refused everywhere else.
+ *
+ * It has no usable default: it names a module only the caller knows about. It is therefore declared as an
+ * ordinary option but required once `emitScope` is `binding-only`, which is a dependency between two
+ * options and so cannot be expressed as a default (FR-018).
+ *
+ * The refusal is the other half of the same fact, and it was missing. Under `core-only` and `full` the
+ * bundle carries its own machinery, nothing imports the specifier, and a `coreModule` sent with either was
+ * **accepted, unvalidated, and used by nothing** — so a caller who supplied the wrong one was told their
+ * request had succeeded. It was worse than inert: the value still entered the resolved options and so the
+ * provenance hash, and three `core-only` requests differing only in a specifier no file mentions came back
+ * as byte-identical code under three different attributions. That is Principle I failing silently, and it
+ * is the same defect the amendment to FR-032 describes for an undeclared identifier role, arrived at
+ * through an option instead.
+ *
+ * It cannot be a catalogue legality rule, which is where a cross-option constraint belongs: `forbids`
+ * enumerates values, and what is forbidden here is supplying *any* value for a free-form string. So the
+ * rule text lives at the throw site, which is the exception `IllegalCombinationError` documents as
+ * catalogue text — noted rather than left to be noticed.
  */
-function requireCoreModule(resolved: ReadonlyMap<string, OptionValue>): void {
-  if (resolved.get("emitScope") !== "binding-only") {
-    return;
-  }
-
+function checkCoreModule(
+  resolved: ReadonlyMap<string, OptionValue>,
+  supplied: Readonly<Record<string, unknown>>,
+): void {
+  const bindingOnly = resolved.get("emitScope") === "binding-only";
   const coreModule = resolved.get("coreModule");
-  if (typeof coreModule !== "string" || coreModule.trim() === "") {
+  const usable = typeof coreModule === "string" && coreModule.trim() !== "";
+
+  if (bindingOnly && !usable) {
     throw new MissingRequiredOptionError("coreModule", 'when emitScope is "binding-only"', [
       "Set it to the module the machinery was written to, as the binding imports from it",
       'or request emitScope "full" for a bundle that carries its own machinery',
     ]);
+  }
+
+  // Judged on what the caller sent rather than on what resolution produced, since the option's default is
+  // the empty string and every request therefore has one after step 5.
+  const sent = supplied["coreModule"];
+  if (!bindingOnly && typeof sent === "string" && sent.trim() !== "") {
+    throw new IllegalCombinationError(
+      `Option "coreModule" is read only when emitScope is "binding-only". At emitScope ` +
+        `"${String(resolved.get("emitScope"))}" the bundle carries its own machinery, so no file would ` +
+        `import the module you named.`,
+      [
+        "remove coreModule",
+        'or request emitScope "binding-only" to receive only the bindings, importing machinery from it',
+      ],
+    );
   }
 }
 
