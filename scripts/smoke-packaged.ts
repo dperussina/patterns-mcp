@@ -43,6 +43,27 @@ function fail(message: string): never {
   process.exit(1);
 }
 
+/**
+ * Stops a killed child from holding this script open.
+ *
+ * `kill()` asks a process to end; it does not close the pipes this script is reading, and a `data`
+ * listener on a pipe is a referenced handle. The write end outlives the child whenever a grandchild
+ * inherited it — the servers each hold a compiler subprocess, so that is the normal case, not the
+ * exotic one — and until it closes, the stream never ends and the event loop never empties.
+ *
+ * That is not hypothetical. CI ran the whole gate green, printed the success line below, and then held
+ * the job for 73 minutes until it was cancelled; the runner's cleanup listed the orphans it had to
+ * terminate. Locally the same script exits immediately, because the compiler notices the closed pipe
+ * faster than anyone is watching — which is exactly the kind of timing this should not depend on.
+ */
+function release(process_: { unref: () => void; stdout: NodeJS.ReadableStream | null; stderr: NodeJS.ReadableStream | null }): void {
+  for (const stream of [process_.stdout, process_.stderr]) {
+    stream?.removeAllListeners();
+    (stream as { destroy?: () => void } | null)?.destroy?.();
+  }
+  process_.unref();
+}
+
 const requests = [
   {
     jsonrpc: "2.0",
@@ -103,6 +124,7 @@ await new Promise<void>((resolve) => {
 clearTimeout(timer);
 child.stdin.end();
 child.kill();
+release(child);
 
 const lines = stdout.split("\n").filter((line) => line.trim() !== "");
 if (lines.length === 0) fail(`the built server wrote nothing to stdout. stderr was:\n${stderr}`);
@@ -267,6 +289,7 @@ try {
   }
 } finally {
   remote.kill();
+  release(remote);
 }
 
 process.stdout.write(

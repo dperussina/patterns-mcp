@@ -118,9 +118,12 @@ export function runtimeRefusal(
 /**
  * Runs the server over this process's stdio until stdin closes.
  *
- * Deliberately does not install signal handlers. A host that wants this process gone sends a signal and
- * the default disposition ends it; a handler that awaited an orderly close would delay that, and there
- * is nothing to flush — no state is written anywhere, so an abrupt end loses nothing.
+ * Deliberately does not install signal handlers, which remains true of *this* module and is no longer the
+ * whole story. The reasoning used to be that an abrupt end loses nothing because no state is written
+ * anywhere. That was wrong about one thing, and it was the expensive thing: the compiler subprocess
+ * outlives an abrupt end and is never reaped. So the handler exists, in `stdio-bin.ts`, where the process
+ * is actually owned — importing this module to test it must not install one, or a suite would inherit the
+ * signal behaviour of a server it merely read.
  */
 export function main(): StdioServerHandle {
   routeConsoleToStderr();

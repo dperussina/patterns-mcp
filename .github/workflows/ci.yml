@@ -22,6 +22,12 @@ jobs:
   check:
     name: check (node ${{ matrix.node }}, ${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    # The gate takes about 14 minutes here and 8 locally, so this is generous rather than tight. It exists
+    # because of how the last hang presented: every step passed, the smoke test printed its success line,
+    # and the job then sat for 73 minutes holding a runner, because an orphaned compiler still had the
+    # output pipe open and a step cannot end until that closes. Left alone it would have run to GitHub's
+    # six-hour default. A hang should cost a coffee, and should hand back logs while someone still cares.
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:

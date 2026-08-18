@@ -9,6 +9,7 @@
  */
 
 import { disposeEngine } from "../engine/generate/index.js";
+import { disposeOnSignal } from "../lifecycle.js";
 import { EXIT, run } from "./run.js";
 
 /**
@@ -20,6 +21,11 @@ import { EXIT, run } from "./run.js";
  */
 async function main(): Promise<void> {
   let code: number = EXIT.INTERNAL;
+
+  // The `finally` below covers a command that finishes. Ctrl-C during a generation does not reach it, and
+  // that is the likeliest way this program ends: verification is the slow part, so it is what a caller
+  // interrupts.
+  disposeOnSignal(disposeEngine);
 
   try {
     code = await run(process.argv.slice(2), {

@@ -12,6 +12,7 @@
  */
 
 import { disposeEngine } from "../../engine/generate/index.js";
+import { disposeOnSignal } from "../../lifecycle.js";
 import { stderrLog } from "../log.js";
 import { main } from "./http.js";
 
@@ -20,6 +21,10 @@ import { main } from "./http.js";
  * it emits — the same reason the `patterns` binary next door has one of these.
  */
 async function start(): Promise<void> {
+  // A serving process is ended by a signal rather than by running out of work, so this is the only exit
+  // path that matters here — without it, stopping the server strands the compiler it warmed.
+  disposeOnSignal(disposeEngine);
+
   const code = await main();
 
   // Only when it declined to start. A serving process is meant to stay up, and disposing the compiler out
